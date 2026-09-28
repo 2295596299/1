@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>同一批财报：问答知识库 (RAG) 实践与一页结论</title>
+  <style>
+    @page {
+      size: A4 portrait;
+      margin: 15mm 15mm 15mm 15mm;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      color: #1e293b;
+      background: #ffffff;
+      line-height: 1.5;
+      font-size: 10pt;
+    }
+    .header {
+      border-bottom: 2px solid #2563eb;
+      padding-bottom: 8px;
+      margin-bottom: 12px;
+    }
+    h1 {
+      font-size: 16pt;
+      color: #0f172a;
+      margin-bottom: 4px;
+      font-weight: 700;
+    }
+    .meta-line {
+      font-size: 9pt;
+      color: #64748b;
+      display: flex;
+      justify-content: space-between;
+      flex-wrap: wrap;
+    }
+    .highlight-box {
+      background: #f0fdf4;
+      border: 1px solid #bbf7d0;
+      border-left: 4px solid #16a34a;
+      border-radius: 4px;
+      padding: 8px 12px;
+      margin-bottom: 12px;
+      font-size: 9.5pt;
+      color: #166534;
+      line-height: 1.5;
+    }
+    h2 {
+      font-size: 11pt;
+      color: #1e40af;
+      margin: 10px 0 6px 0;
+      border-bottom: 1px solid #e2e8f0;
+      padding-bottom: 3px;
+    }
+    p, ul {
+      margin-bottom: 6px;
+      font-size: 9pt;
+      color: #334155;
+    }
+    ul { padding-left: 18px; }
+    li { margin-bottom: 3px; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 8px 0;
+      font-size: 8pt;
+    }
+    th, td {
+      border: 1px solid #cbd5e1;
+      padding: 4px 6px;
+      text-align: left;
+    }
+    th {
+      background: #f1f5f9;
+      color: #1e293b;
+      font-weight: 600;
+    }
+    .badge-ok { color: #16a34a; font-weight: bold; }
+    .badge-fail { color: #dc2626; font-weight: bold; }
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-top: 6px;
+    }
+    .grid-card {
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      padding: 8px 10px;
+      background: #f8fafc;
+    }
+    .grid-card h3 {
+      font-size: 9.5pt;
+      margin-bottom: 4px;
+      color: #0f172a;
+    }
+    .footer {
+      margin-top: 14px;
+      border-top: 1px solid #e2e8f0;
+      padding-top: 6px;
+      text-align: center;
+      font-size: 8pt;
+      color: #94a3b8;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <h1>同一批财报：问答知识库 (RAG) 实践与一页结论</h1>
+    <div class="meta-line">
+      <span><b>学生/作者</b>: Zhitao Mao (2295596299)</span>
+      <span><b>作业方向</b>: 方向 A (财报问答知识库)</span>
+      <span><b>代码仓库</b>: https://github.com/2295596299/1</span>
+      <span><b>在线系统</b>: https://1-tau-dun.vercel.app/rag.html</span>
+    </div>
+  </div>
+
+  <div class="highlight-box">
+    <b>一句话核心结论</b>：同一批财报，具体科目与财务数字查证适合<b>“建库 (RAG)”</b>，因其要求 100% 真实且带出处，RAG 结合表格还原与页码追溯可彻底消灭幻觉；而全行业宏观梯队与横向对比在纯 RAG 下容易<b>“翻车”</b>，因单步检索受限于单次上下文容量且缺乏跨文档 Map-Reduce 聚合与排序计算能力。
+  </div>
+
+  <h2>一、实验设置与切块索引图谱</h2>
+  <p>
+    <b>材料数据</b>：A 股白酒行业 10 家代表性上市公司 2023 年报（茅台、五粮液、老窖、汾酒、洋河、古井、舍得、今世缘、迎驾、口子窖）。<br>
+    <b>切块与索引</b>：采用 <code>pdfplumber</code> 还原 Markdown 表格，保留行列对齐；每个切块封装 <code>[公司, 代码, 章节, 页码, 类型]</code> 元数据。累计生成 <b>2,971 个切块</b>（1,116 个表格块，1,855 个正文块），构建 <b>BM25（精准词频） + 向量空间（密集语义）双路混合检索</b>。
+  </p>
+
+  <h2>二、10 题基准测试矩阵 (含 2 道跨公司全景题)</h2>
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 35px;">题号</th>
+        <th style="width: 75px;">分类</th>
+        <th style="width: 70px;">目标实体</th>
+        <th>题目考察核心</th>
+        <th style="width: 45px;">评测</th>
+        <th>关键召回出处与归因分析</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><b>Q01</b></td>
+        <td>单公司细节</td>
+        <td>贵州茅台</td>
+        <td>2023年研发投入总额与营收占比</td>
+        <td class="badge-ok">答对</td>
+        <td>命中第11页研发投入表：6.22 亿元，占比 0.42% (精准匹配)</td>
+      </tr>
+      <tr>
+        <td><b>Q02</b></td>
+        <td>产品线拆分</td>
+        <td>五粮液</td>
+        <td>五粮液产品与系列酒营收及毛利率</td>
+        <td class="badge-ok">答对</td>
+        <td>命中第16页分产品主营表：主产品628亿(毛利86.6%)，系列酒136亿</td>
+      </tr>
+      <tr>
+        <td><b>Q03</b></td>
+        <td>实物产销存</td>
+        <td>泸州老窖</td>
+        <td>传统名优白酒生产量、销售量、库存量</td>
+        <td class="badge-ok">答对</td>
+        <td>命中第18页产销量情况分析表：生产4.38万吨，销售4.37万吨</td>
+      </tr>
+      <tr>
+        <td><b>Q04</b></td>
+        <td>客户集中度</td>
+        <td>山西汾酒</td>
+        <td>前五名客户销售总额及年度占比</td>
+        <td class="badge-ok">答对</td>
+        <td>命中第17页主要销售客户表：前五客户41.52亿元，占比12.99%</td>
+      </tr>
+      <tr>
+        <td><b>Q05</b></td>
+        <td>渠道网络</td>
+        <td>洋河股份</td>
+        <td>省内与省外经销商期末数量分布</td>
+        <td class="badge-ok">答对</td>
+        <td>命中第19页渠道网络表：省内2,968家，省外5,671家(全国8,639家)</td>
+      </tr>
+      <tr>
+        <td><b>Q06</b></td>
+        <td>区域营收</td>
+        <td>古井贡酒</td>
+        <td>华北/华南/华中营收与核心粮仓</td>
+        <td class="badge-ok">答对</td>
+        <td>命中第16页地区分部表：华中收入171亿，占比84.47%(核心粮仓)</td>
+      </tr>
+      <tr>
+        <td><b>Q07</b></td>
+        <td>业绩总览</td>
+        <td>今世缘</td>
+        <td>营业收入与归母净利润及同比增幅</td>
+        <td class="badge-ok">答对</td>
+        <td>命中第6页主要会计数据表：营收破百亿(100.98亿, +28.07%)</td>
+      </tr>
+      <tr>
+        <td><b>Q08</b></td>
+        <td>定性战略</td>
+        <td>迎驾贡酒</td>
+        <td>“生态酿造”战略与核心品牌内涵</td>
+        <td class="badge-ok">答对</td>
+        <td>命中第11页管理层讨论：生态产区/水源/原料/酿造/洞藏全产业链</td>
+      </tr>
+      <tr>
+        <td><b>Q09</b></td>
+        <td>跨公司全景</td>
+        <td>茅台 vs 五粮液</td>
+        <td>两大龙头酒类营收体量与毛利率对比</td>
+        <td class="badge-ok">答对</td>
+        <td>双实体提权生效，同窗召回茅台(91.96%)与五粮液(81.93%)表格</td>
+      </tr>
+      <tr>
+        <td><b>Q10</b></td>
+        <td>跨公司全景</td>
+        <td>10家上市公司</td>
+        <td>全行业营业收入梯队分布与竞争格局</td>
+        <td class="badge-fail">翻车</td>
+        <td><b>检索容量与单步聚合失效</b>：单次 Top-K 仅召回 3 家头部块，遗漏其余 7 家</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>三、深入归因分析与决策选型</h2>
+  <div class="grid-2">
+    <div class="grid-card">
+      <h3 style="color: #166534;">✅ 哪类题答得好？（单公司细节 / 事实表格）</h3>
+      <ul>
+        <li><b>强词频特征</b>：财报术语（如“研发投入”、“经销商数量”）极度规范，BM25 词频匹配命中率接近 100%。</li>
+        <li><b>表格还原保真</b>：Markdown 表格还原保证了科目、数值与单位的行对齐，彻底消除大模型数值幻觉。</li>
+        <li><b>语义融合优势</b>：针对 Q08 战略定性题，向量余弦相似度弥合了口语提问与书面表达的鸿沟。</li>
+      </ul>
+    </div>
+    <div class="grid-card">
+      <h3 style="color: #991b1b;">❌ 哪类题必然翻车？（全行业宏观统计）</h3>
+      <ul>
+        <li><b>检索窗口容量瓶颈</b>：单次检索 Top-4 切块最多容纳 2~3 家企业数据，无法在单步 Context 中装下 10 家公司全貌。</li>
+        <li><b>缺乏聚合计算能力</b>：纯 RAG 仅做“局部相似度匹配”，无自动横向排序求和能力。</li>
+        <li><b>工程改进方向</b>：宏观全景题应结合 <b>Agent + Text-to-SQL</b>（先入结构化表）或多智能体 <b>Map-Reduce</b> 分治。</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>四、同一批财报：什么问题该建库？什么问题该微调？</h2>
+  <p>
+    <b>适合建库 (RAG)</b>：查证特定年份、科目、真实数值，要求答案 100% 严谨且带页码追溯；财报按季度频繁更新的场景。<br>
+    <b>适合微调 (LoRA)</b>：内化公司“董秘”标准官方措辞与品牌公关口径；培养特定行业黑话敏感度与多跳定性推理直觉。
+  </p>
+
+  <div class="footer">
+    白酒行业财报问答知识库 (RAG) · 第三周作业交付件 · 2026年9月
+  </div>
+
+</body>
+</html>

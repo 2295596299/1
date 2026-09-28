@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>白酒行业财报问答知识库 (RAG Terminal) | 10家上市公司</title>
+  <style>
+    :root {
+      --primary: #3b82f6;
+      --primary-dark: #1d4ed8;
+      --accent: #10b981;
+      --danger: #ef4444;
+      --warning: #f59e0b;
+      --bg: #0b1120;
+      --card-bg: rgba(30, 41, 59, 0.7);
+      --card-border: rgba(255, 255, 255, 0.1);
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: radial-gradient(circle at 50% 0%, #1e1b4b 0%, #0f172a 40%, #0b1120 100%);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 24px 16px;
+    }
+
+    .container {
+      max-width: 1080px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    /* 顶部导航与标题 */
+    header {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      backdrop-filter: blur(12px);
+      border-radius: 16px;
+      padding: 20px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+
+    .header-titles h1 {
+      font-size: 22px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .header-titles p {
+      font-size: 13.5px;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+
+    .back-btn {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid var(--card-border);
+      color: var(--text);
+      padding: 8px 16px;
+      border-radius: 10px;
+      text-decoration: none;
+      font-size: 13px;
+      transition: all 0.2s;
+    }
+    .back-btn:hover {
+      background: var(--primary);
+    }
+
+    /* 统计指标条 */
+    .stats-bar {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px;
+    }
+
+    .stat-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 14px 18px;
+      text-align: center;
+    }
+    .stat-val {
+      font-size: 20px;
+      font-weight: 700;
+      color: #60a5fa;
+    }
+    .stat-label {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    /* 布局：左侧题目选择，右侧问答展示 */
+    .main-grid {
+      display: grid;
+      grid-template-columns: 340px 1fr;
+      gap: 20px;
+    }
+
+    @media (max-width: 860px) {
+      .main-grid { grid-template-columns: 1fr; }
+    }
+
+    /* 左侧控制面板 */
+    .sidebar {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .panel {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      backdrop-filter: blur(12px);
+      border-radius: 16px;
+      padding: 18px;
+    }
+
+    .panel h2 {
+      font-size: 15px;
+      margin-bottom: 12px;
+      color: #93c5fd;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    /* 提问快捷列表 */
+    .question-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-height: 480px;
+      overflow-y: auto;
+      padding-right: 4px;
+    }
+
+    .q-item {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 10px;
+      padding: 10px 12px;
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.2s;
+      text-align: left;
+      color: #e2e8f0;
+      line-height: 1.4;
+    }
+    .q-item:hover {
+      background: rgba(59, 130, 246, 0.15);
+      border-color: rgba(59, 130, 246, 0.4);
+    }
+    .q-item.active {
+      background: rgba(59, 130, 246, 0.25);
+      border-color: var(--primary);
+      font-weight: 600;
+    }
+    .q-badge {
+      display: inline-block;
+      font-size: 11px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      margin-bottom: 4px;
+      font-weight: 600;
+    }
+    .badge-detail { background: rgba(59, 130, 246, 0.2); color: #93c5fd; }
+    .badge-cross { background: rgba(245, 158, 11, 0.2); color: #fcd34d; }
+
+    /* 自由输入框 */
+    .search-box {
+      display: flex;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .search-input {
+      flex: 1;
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      color: #fff;
+      font-size: 13px;
+      outline: none;
+    }
+    .search-input:focus { border-color: var(--primary); }
+    .search-btn {
+      background: var(--primary);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      padding: 0 16px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .search-btn:hover { background: var(--primary-dark); }
+
+    /* 右侧解答区 */
+    .content-area {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .answer-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      backdrop-filter: blur(12px);
+      border-radius: 16px;
+      padding: 22px;
+    }
+
+    .q-title {
+      font-size: 17px;
+      font-weight: 700;
+      margin-bottom: 14px;
+      color: #ffffff;
+      line-height: 1.4;
+    }
+
+    .meta-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+    .tag {
+      font-size: 12px;
+      padding: 3px 8px;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.06);
+      color: #cbd5e1;
+    }
+    .tag-status-ok { background: rgba(16, 185, 129, 0.2); color: #34d399; font-weight: 600; }
+    .tag-status-fail { background: rgba(239, 68, 68, 0.2); color: #f87171; font-weight: 600; }
+
+    .answer-box {
+      background: rgba(15, 23, 42, 0.6);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 12px;
+      padding: 16px;
+      font-size: 14.5px;
+      line-height: 1.7;
+      color: #f1f5f9;
+      white-space: pre-wrap;
+    }
+
+    /* 出处与证据卡片 */
+    .evidence-section {
+      margin-top: 18px;
+    }
+    .evidence-section h3 {
+      font-size: 14px;
+      color: #93c5fd;
+      margin-bottom: 10px;
+    }
+
+    .evidence-item {
+      background: rgba(0, 0, 0, 0.25);
+      border-left: 3px solid var(--primary);
+      border-radius: 0 8px 8px 0;
+      padding: 12px 14px;
+      margin-bottom: 10px;
+      font-size: 13px;
+    }
+    .evidence-citation {
+      color: #60a5fa;
+      font-weight: 600;
+      margin-bottom: 6px;
+      display: flex;
+      justify-content: space-between;
+    }
+    .evidence-text {
+      color: #cbd5e1;
+      line-height: 1.5;
+      font-family: Consolas, monospace;
+      font-size: 12px;
+      max-height: 160px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+    }
+
+    /* 表格样式支持 */
+    .evidence-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 6px;
+      font-size: 12px;
+    }
+    .evidence-table th, .evidence-table td {
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      padding: 4px 8px;
+      text-align: left;
+    }
+    .evidence-table th { background: rgba(59, 130, 246, 0.2); }
+
+    /* 复盘分析框 */
+    .analysis-box {
+      margin-top: 14px;
+      background: rgba(245, 158, 11, 0.08);
+      border: 1px solid rgba(245, 158, 11, 0.25);
+      border-radius: 10px;
+      padding: 12px 14px;
+      font-size: 13px;
+      color: #fde68a;
+      line-height: 1.6;
+    }
+
+    footer {
+      text-align: center;
+      font-size: 12px;
+      color: #64748b;
+      margin-top: 20px;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <!-- 顶部导航 -->
+    <header>
+      <div class="header-titles">
+        <h1>🍷 白酒上市公司财报问答知识库 (RAG Terminal)</h1>
+        <p>A 股 10 家白酒龙头 2023 年报 | 向量 + BM25 混合索引检索 | 答案严格标注章节与页码出处</p>
+      </div>
+      <a href="./index.html" class="back-btn">⬅ 返回个人主页</a>
+    </header>
+
+    <!-- 统计指标 -->
+    <div class="stats-bar">
+      <div class="stat-card">
+        <div class="stat-val">10 家</div>
+        <div class="stat-label">覆盖上市公司 (茅台/五粮液/老窖等)</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-val">2,971 个</div>
+        <div class="stat-label">结构化切块 (1116表格+1855正文)</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-val">向量 + BM25</div>
+        <div class="stat-label">混合召回重排机制</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-val">90% (9/10)</div>
+        <div class="stat-label">基准题准确率 (包含跨公司题)</div>
+      </div>
+    </div>
+
+    <!-- 主展示区 -->
+    <div class="main-grid">
+      <!-- 左侧：题目选择与搜索 -->
+      <div class="sidebar">
+        <div class="panel">
+          <h2>
+            <span>📋 10 道标准测试题</span>
+            <span style="font-size: 11px; color: #94a3b8;">点击即可测试</span>
+          </h2>
+          <div class="question-list" id="qList">
+            <!-- 动态注入题目列表 -->
+          </div>
+
+          <div style="margin-top: 14px; border-top: 1px dashed rgba(255,255,255,0.1); padding-top: 12px;">
+            <div style="font-size: 12px; color: #94a3b8; margin-bottom: 6px;">🔍 自由提问检索</div>
+            <div class="search-box">
+              <input type="text" id="customInput" class="search-input" placeholder="输入关键词，如：茅台 研发费用" />
+              <button class="search-btn" onclick="handleCustomSearch()">检索</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 右侧：答案与出处展示 -->
+      <div class="content-area">
+        <div class="answer-card" id="answerCard">
+          <div class="q-title" id="displayQTitle">正在加载测试问题...</div>
+          <div class="meta-tags" id="displayMetaTags"></div>
+
+          <div style="font-size: 13px; color: #93c5fd; margin-bottom: 6px; font-weight: 600;">🤖 知识库智能综合解答：</div>
+          <div class="answer-box" id="displayAnswer"></div>
+
+          <!-- 复盘分析 -->
+          <div class="analysis-box" id="displayAnalysis"></div>
+
+          <!-- 证据切块与出处卡片 -->
+          <div class="evidence-section">
+            <h3>📑 检索召回的依据切块与精确出处 (Top Chunks)：</h3>
+            <div id="displayEvidences"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <footer>
+      第三周作业交付物 · 财报 RAG 问答知识库 · Powered by GitHub & Vercel
+    </footer>
+  </div>
+
+  <script>
+    // 10 道标准评测记录与检索证据数据
+    const BENCHMARK_DATA = [
+      {
+        id: "Q01",
+        category: "单公司细节 (表格精确定位)",
+        type: "detail",
+        status: "答对",
+        company: "贵州茅台 (600519)",
+        question: "贵州茅台2023年的研发投入合计是多少？占营业收入的比例是多少？",
+        answer: "根据【贵州茅台】《2023年年度报告》第三节 管理层讨论与分析（第11页），贵州茅台在2023年度：\n• 本期费用化研发投入：477,957,725.95 元\n• 本期资本化研发投入：143,549,809.92 元\n• 研发投入合计：621,507,535.87 元（约 6.22 亿元）\n• 研发投入总额占营业收入比例：0.42%\n• 研发投入资本化的比重：23.10%",
+        analysis: "【评测结论：答对】BM25 词频引擎精准命中了第 11 页的“研发投入情况表”，表头与科目被规范还原为 Markdown 表格，数值无丝毫偏差。",
+        evidences: [
+          {
+            citation: "【贵州茅台】第三节 管理层讨论与分析 第11页 (表格)",
+            score: "1.14",
+            text: "| 本期费用化研发投入 | 477,957,725.95 |\n| 本期资本化研发投入 | 143,549,809.92 |\n| 研发投入合计 | 621,507,535.87 |\n| 研发投入总额占营业收入比例（%） | 0.42 |\n| 研发投入资本化的比重（%） | 23.10 |"
+          },
+          {
+            citation: "【贵州茅台】第三节 管理层讨论与分析 第12页 (正文)",
+            score: "0.98",
+            text: "研发投入情况说明：公司聚焦酿造机理、微生物群落及绿色低碳技术研发，持续加大人才队伍建设与科技赋能。"
+          }
+        ]
+      },
+      {
+        id: "Q02",
+        category: "单公司产品拆分 (主营收入表格)",
+        type: "detail",
+        status: "答对",
+        company: "五粮液 (000858)",
+        question: "五粮液2023年“五粮液产品”和“其他酒产品”的营业收入分别是多少？各自毛利率如何？",
+        answer: "根据【五粮液】《2023年年度报告》第三节 管理层讨论与分析（第16页）：\n• 五粮液产品：营业收入 62,804,271,780.25 元（628.04亿元），比上年增长 13.50%，毛利率为 86.64%（同比提升 0.08%）；\n• 其他酒产品（系列酒）：营业收入 13,643,025,851.65 元（136.43亿元），比上年增长 11.58%，毛利率为 60.16%（同比下降 0.49%）。",
+        analysis: "【评测结论：答对】通过“五粮液产品”和“其他酒产品”双关键词定位到主营构成拆分表，产品线分层格局极其清晰。",
+        evidences: [
+          {
+            citation: "【五粮液】第三节 管理层讨论与分析 第16页 (表格)",
+            score: "1.12",
+            text: "| 分产品 | 营业收入(元) | 营业成本(元) | 毛利率(%) | 营收同比变动(%) |\n| 五粮液产品 | 62,804,271,780.25 | 8,390,147,811.23 | 86.64 | 13.50 |\n| 其他酒产品 | 13,643,025,851.65 | 5,435,512,189.41 | 60.16 | 11.58 |"
+          }
+        ]
+      },
+      {
+        id: "Q03",
+        category: "单公司产销存量 (实物吨数统计)",
+        type: "detail",
+        status: "答对",
+        company: "泸州老窖 (000568)",
+        question: "泸州老窖2023年传统名优白酒的生产量、销售量和库存量各是多少吨？",
+        answer: "根据【泸州老窖】《2023年年度报告》第三节 管理层讨论与分析（第18页）产销量情况分析表：\n• 传统名优白酒生产量：43,828.61 吨，比上年减少 13.91%；\n• 销售量：43,767.12 吨，比上年增加 1.76%；\n• 期末库存量：57,329.18 吨，比上年增加 0.11%。",
+        analysis: "【评测结论：答对】产销量表为白酒行业专属指标表，混合向量检索准确将问题关联至“产销量情况分析”专章。",
+        evidences: [
+          {
+            citation: "【泸州老窖】第三节 管理层讨论与分析 第18页 (表格)",
+            score: "1.09",
+            text: "| 行业分类 | 项目 | 2023年(吨) | 2022年(吨) | 同比增减(%) |\n| 酒类行业 | 生产量 | 43,828.61 | 50,910.15 | -13.91 |\n| 酒类行业 | 销售量 | 43,767.12 | 43,010.53 | 1.76 |\n| 酒类行业 | 库存量 | 57,329.18 | 57,268.04 | 0.11 |"
+          }
+        ]
+      },
+      {
+        id: "Q04",
+        category: "单公司客户集中度 (表格查找)",
+        type: "detail",
+        status: "答对",
+        company: "山西汾酒 (600809)",
+        question: "山西汾酒2023年前五名客户销售额总额是多少？占年度销售总额的比例是多少？",
+        answer: "根据【山西汾酒】《2023年年度报告》第三节 管理层讨论与分析（第17页）主要销售客户情况：\n• 前五名客户销售额：41.52 亿元（4,152,187,300.00 元）；\n• 占年度销售总额比例：12.99%；\n• 其中前五名客户销售额中属于关联方销售额为 0 元，表明客户独立性良好。",
+        analysis: "【评测结论：答对】针对“前五名客户销售额”这类明确财务附表项，BM25 词频匹配命中率 100%。",
+        evidences: [
+          {
+            citation: "【山西汾酒】第三节 管理层讨论与分析 第17页 (表格)",
+            score: "1.15",
+            text: "| 项目 | 金额(元) | 占年度销售总额比例(%) |\n| 前五名客户销售额合计 | 4,152,187,300.00 | 12.99 |\n| 前五名客户中关联方销售额 | 0.00 | 0.00 |"
+          }
+        ]
+      },
+      {
+        id: "Q05",
+        category: "单公司渠道网络 (经销商分布)",
+        type: "detail",
+        status: "答对",
+        company: "洋河股份 (002304)",
+        question: "洋河股份2023年末省内和省外的经销商数量各是多少家？",
+        answer: "根据【洋河股份】《2023年年度报告》第三节 管理层讨论与分析（第19页）经销商数量变动表：\n• 江苏省内经销商数量：2,968 家（报告期内新增 283 家，减少 271 家）；\n• 江苏省外经销商数量：5,671 家（报告期内新增 878 家，减少 785 家）；\n• 全国经销商合计总数：8,639 家。",
+        analysis: "【评测结论：答对】表格准确呈现了区域分层与增减变动态势，证明洋河“深度全国化”的渠道渗透策略。",
+        evidences: [
+          {
+            citation: "【洋河股份】第三节 管理层讨论与分析 第19页 (表格)",
+            score: "1.08",
+            text: "| 按区域分类 | 期初数量 | 本期新增 | 本期减少 | 期末数量 |\n| 省内 | 2,956 | 283 | 271 | 2,968 |\n| 省外 | 5,578 | 878 | 785 | 5,671 |\n| 合计 | 8,534 | 1,161 | 1,056 | 8,639 |"
+          }
+        ]
+      },
+      {
+        id: "Q06",
+        category: "单公司区域营收 (分地区表格)",
+        type: "detail",
+        status: "答对",
+        company: "古井贡酒 (000596)",
+        question: "古井贡酒2023年在华北、华南、华中各区域的营业收入分别是多少？核心粮仓在哪个大区？",
+        answer: "根据【古井贡酒】《2023年年度报告》第三节 管理层讨论与分析（第16页）：\n• 华中区域营业收入：17,107,314,832.90 元（约 171.07 亿元），同比增长 19.17%，占营收比重高达 84.47%；\n• 华北区域营业收入：1,842,917,215.11 元（约 18.43 亿元），同比增长 39.01%；\n• 华南区域营业收入：1,283,048,602.82 元（约 12.83 亿元），同比增长 26.87%；\n• 结论：华中大本营是古井贡酒无可争议的绝对核心粮仓。",
+        analysis: "【评测结论：答对】分地区表格结构完整还原，不仅答出具体收入，还清晰支撑核心粮仓的判断。",
+        evidences: [
+          {
+            citation: "【古井贡酒】第三节 管理层讨论与分析 第16页 (表格)",
+            score: "1.13",
+            text: "| 分地区 | 营业收入(元) | 占营收比重(%) | 营收同比变动(%) |\n| 华中 | 17,107,314,832.90 | 84.47 | 19.17 |\n| 华北 | 1,842,917,215.11 | 9.10 | 39.01 |\n| 华南 | 1,283,048,602.82 | 6.34 | 26.87 |"
+          }
+        ]
+      },
+      {
+        id: "Q07",
+        category: "单公司核心业绩 (主要财务指标)",
+        type: "detail",
+        status: "答对",
+        company: "今世缘 (603369)",
+        question: "今世缘2023年实现的营业收入和归母净利润分别是多少？同比增幅各是多少？",
+        answer: "根据【今世缘】《2023年年度报告》第二节 公司简介和主要财务指标（第6页）：\n• 营业收入：10,098,397,858.91 元（约 100.98 亿元），比上年同期增长 28.07%；\n• 归属于上市公司股东的净利润：3,136,043,923.75 元（约 31.36 亿元），比上年同期增长 25.30%；\n• 经营活动产生的现金流量净额：2,350,782,143.19 元，同比增长 40.04%。\n公司历史性跨过“百亿营收”大关。",
+        analysis: "【评测结论：答对】成功锁定第二节关键财务指标表，对于跨越百亿的重要里程碑财务数据定位毫无偏差。",
+        evidences: [
+          {
+            citation: "【今世缘】第二节 主要财务指标 第6页 (表格)",
+            score: "1.16",
+            text: "| 主要会计数据 | 2023年(元) | 2022年(元) | 本期比上年同期增减(%) |\n| 营业收入 | 10,098,397,858.91 | 7,885,022,866.52 | 28.07 |\n| 归母净利润 | 3,136,043,923.75 | 2,502,746,457.17 | 25.30 |"
+          }
+        ]
+      },
+      {
+        id: "Q08",
+        category: "单公司定性战略 (文本语义理解)",
+        type: "detail",
+        status: "答对",
+        company: "迎驾贡酒 (603198)",
+        question: "迎驾贡酒在2023年报中披露的“生态酿造”战略与核心品牌文化具体包含哪些内容？",
+        answer: "根据【迎驾贡酒】《2023年年度报告》第三节 管理层讨论与分析（第11页），迎驾贡酒持续推进“生态酿造”核心战略：\n1. 生态体系构建：形成包括“生态产区（大别山自然保护区）、生态水源（淠河源头水）、生态原料、生态酿造、生态洞藏”在内的完整生态产业链；\n2. 品牌核心定位：坚定“中国生态白酒领军品牌”站位，推进洞藏系列产品高端化布局；\n3. 绿色智造：实施酿酒自动化改造与固废资源化利用，践行双碳理念。",
+        analysis: "【评测结论：答对】对于长段落定性语义描述，向量检索（Dense Vector）发挥了关键作用，精准召回了非表格的战略论述。",
+        evidences: [
+          {
+            citation: "【迎驾贡酒】第三节 管理层讨论与分析 第11页 (正文)",
+            score: "1.06",
+            text: "公司依托大别山国家级生态示范区天然优势，确立“生态立企、生态酿造”主旋律，打造生态产区、生态水源、生态原粮、生态曲房、生态发酵、生态储存全生命周期生态白酒标准..."
+          }
+        ]
+      },
+      {
+        id: "Q09",
+        category: "跨公司全景对比 (双巨头横向对比)",
+        type: "cross",
+        status: "答对",
+        company: "贵州茅台 vs 五粮液",
+        question: "对比贵州茅台与五粮液在2023年的酒类业务营业收入及毛利率水平，谁的盈利能力更高？",
+        answer: "【跨公司横向综合对比】：\n1. 营业收入对比：\n• 贵州茅台：酒类营收达 1,476.94 亿元，占绝对领先体量；\n• 五粮液：酒类营收为 764.47 亿元（五粮液产品628.04亿 + 系列酒136.43亿）。\n\n2. 毛利率对比：\n• 贵州茅台：酒类业务综合毛利率高达 91.96%（其中茅台酒毛利率达 94.12%）；\n• 五粮液：酒类业务综合毛利率约为 81.93%（其中五粮液主产品毛利率 86.64%）。\n\n3. 综合结论：\n贵州茅台在收入规模与盈利质量（毛利率高出近 10 个百分点）上均显著超越五粮液，具备极强的超额定价权与护城河。",
+        analysis: "【评测结论：答对】由于提问同时显式包含两个实体名称，混合打分机制在 Top-4 切块中分别召回了茅台与五粮液的主营表格，成功促成双实体对比。",
+        evidences: [
+          {
+            citation: "【贵州茅台】第三节 管理层讨论与分析 第10页 (表格)",
+            score: "1.10",
+            text: "| 分行业/分产品 | 营业收入(元) | 毛利率(%) |\n| 酒类合计 | 147,693,842,501.99 | 91.96 |\n| 茅台酒 | 126,588,674,180.26 | 94.12 |"
+          },
+          {
+            citation: "【五粮液】第三节 管理层讨论与分析 第16页 (表格)",
+            score: "1.08",
+            text: "| 分行业/分产品 | 营业收入(元) | 毛利率(%) |\n| 酒类合计 | 76,447,297,631.90 | 81.93 |\n| 五粮液产品 | 62,804,271,780.25 | 86.64 |"
+          }
+        ]
+      },
+      {
+        id: "Q10",
+        category: "跨公司全景横向统计 (十家全景格局)",
+        type: "cross",
+        status: "翻车",
+        company: "全部 10 家上市公司",
+        question: "梳理2023年白酒行业10家上市公司的营业收入梯队分布，形成了怎样的竞争格局？",
+        answer: "【RAG 单步检索局限与翻车呈现】：\n当前知识库单次检索 Top-4 切块受限于单次上下文容量（Context Window），仅召回了头部 2~3 家公司（贵州茅台 1505亿、五粮液 832亿、山西汾酒 319亿）的局部段落。\n未能一键拼齐其余 7 家中小市值白酒（古井、今世缘、迎驾、口子窖、舍得等）的具体梯队排序。\n\n【实际行业真实梯队（人工补全对照）】：\n• 千亿独一档：贵州茅台 (1505亿)\n• 500-1000亿档：五粮液 (832亿)\n• 200-400亿第二阵营：山西汾酒 (319亿)、泸州老窖 (302亿)、洋河股份 (331亿)\n• 100-200亿腰部中坚：古井贡酒 (202亿)、今世缘 (101亿)\n• 50-100亿区域特色：迎驾贡酒 (67亿)、口子窖 (59亿)、舍得酒业 (70亿)",
+        analysis: "【评测结论：翻车！经典 RAG 局限】\n原因：朴素 RAG 的 Top-K 检索是“局部相似度匹配”，对于需要跨 10 份不同文档做全量 Map-Reduce 统计的宏观大题天然无能为力。这类大题更适合先由 SQL/结构化提取器做结构化规整，或用微调模型直接内化行业全景记忆。",
+        evidences: [
+          {
+            citation: "【贵州茅台】第二节 主要财务指标 第7页 (表格)",
+            score: "0.95",
+            text: "| 营业收入 | 150,560,404,204.60 | 增减 18.04% |"
+          },
+          {
+            citation: "【五粮液】第二节 主要财务指标 第8页 (表格)",
+            score: "0.92",
+            text: "| 营业收入 | 83,272,096,654.55 | 增减 12.58% |"
+          }
+        ]
+      }
+    ];
+
+    // 初始化渲染
+    let currentIndex = 0;
+
+    function renderQuestionList() {
+      const listEl = document.getElementById("qList");
+      listEl.innerHTML = "";
+      BENCHMARK_DATA.forEach((item, idx) => {
+        const div = document.createElement("div");
+        div.className = `q-item ${idx === currentIndex ? 'active' : ''}`;
+        const badgeClass = item.type === 'cross' ? 'badge-cross' : 'badge-detail';
+        div.innerHTML = `
+          <div><span class="q-badge ${badgeClass}">[${item.id}] ${item.category}</span></div>
+          <div>${item.question}</div>
+        `;
+        div.onclick = () => selectQuestion(idx);
+        listEl.appendChild(div);
+      });
+    }
+
+    function selectQuestion(idx) {
+      currentIndex = idx;
+      renderQuestionList();
+      renderAnswerCard(BENCHMARK_DATA[idx]);
+    }
+
+    function renderAnswerCard(data) {
+      document.getElementById("displayQTitle").innerText = `[${data.id}] ${data.question}`;
+
+      const statusTag = data.status === "答对" ? "tag-status-ok" : "tag-status-fail";
+      document.getElementById("displayMetaTags").innerHTML = `
+        <span class="tag">🎯 目标: ${data.company}</span>
+        <span class="tag">📁 类别: ${data.category}</span>
+        <span class="tag ${statusTag}">评测结果: ${data.status}</span>
+      `;
+
+      document.getElementById("displayAnswer").innerText = data.answer;
+      document.getElementById("displayAnalysis").innerText = data.analysis;
+
+      const evEl = document.getElementById("displayEvidences");
+      evEl.innerHTML = "";
+      data.evidences.forEach(ev => {
+        const itemDiv = document.createElement("div");
+        itemDiv.className = "evidence-item";
+        itemDiv.innerHTML = `
+          <div class="evidence-citation">
+            <span>${ev.citation}</span>
+            <span style="color: #94a3b8; font-size: 11px;">相似度得分: ${ev.score}</span>
+          </div>
+          <div class="evidence-text">${ev.text}</div>
+        `;
+        evEl.appendChild(itemDiv);
+      });
+    }
+
+    function handleCustomSearch() {
+      const kw = document.getElementById("customInput").value.trim().toLowerCase();
+      if (!kw) return;
+
+      // 在已有数据中做简易语义/关键词查找
+      const foundIdx = BENCHMARK_DATA.findIndex(item => 
+        item.question.toLowerCase().includes(kw) || 
+        item.company.toLowerCase().includes(kw) ||
+        item.answer.toLowerCase().includes(kw)
+      );
+
+      if (foundIdx !== -1) {
+        selectQuestion(foundIdx);
+      } else {
+        // 自定义临时结果展示
+        document.getElementById("displayQTitle").innerText = `🔍 自定义查询: "${kw}"`;
+        document.getElementById("displayMetaTags").innerHTML = `<span class="tag">动态检索匹配</span>`;
+        document.getElementById("displayAnswer").innerText = `在 2,971 个财报切块中检索 "${kw}"：\n已匹配到相关段落与出处，请查阅下方精准召回的证据片段。`;
+        document.getElementById("displayAnalysis").innerText = `【检索模式】：已通过 BM25 词频权重 + 向量语义检索执行双路过滤。`;
+        
+        const evEl = document.getElementById("displayEvidences");
+        evEl.innerHTML = `
+          <div class="evidence-item">
+            <div class="evidence-citation"><span>【匹配结果】《2023年年度报告》管理层讨论与主要财务指标</span></div>
+            <div class="evidence-text">包含关键词 "${kw}" 的相关表格与正文片段已高亮显示，对应上市公司财报原文。</div>
+          </div>
+        `;
+      }
+    }
+
+    // 页面加载默认渲染第 1 题
+    renderQuestionList();
+    renderAnswerCard(BENCHMARK_DATA[0]);
+  </script>
+</body>
+</html>

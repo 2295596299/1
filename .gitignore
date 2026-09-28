@@ -1,0 +1,10 @@
+# Financial RAG binary PDFs (downloaded on demand via download_reports.py)
+pdf_reports/
+financial_rag/pdf_reports/
+*.pdf
+
+# Python cache
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
