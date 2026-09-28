@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Zhitao's Space | 个人主页</title>
+  <style>
+    :root {
+      --primary: #2563eb;
+      --primary-light: #60a5fa;
+      --bg-gradient: linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%);
+      --card-bg: rgba(255, 255, 255, 0.05);
+      --card-border: rgba(255, 255, 255, 0.1);
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: var(--bg-gradient);
+      color: var(--text-main);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 40px 20px;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 720px;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    /* 个人资料卡片 */
+    .profile-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-radius: 20px;
+      padding: 36px 28px;
+      text-align: center;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+    }
+
+    .avatar {
+      width: 90px;
+      height: 90px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 18px;
+      font-size: 38px;
+      font-weight: bold;
+      color: #fff;
+      box-shadow: 0 4px 20px rgba(59, 130, 246, 0.4);
+    }
+
+    h1 {
+      font-size: 26px;
+      font-weight: 700;
+      margin-bottom: 8px;
+      letter-spacing: -0.5px;
+    }
+
+    .subtitle {
+      font-size: 15px;
+      color: var(--text-muted);
+      margin-bottom: 18px;
+      line-height: 1.5;
+    }
+
+    .tags {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 8px;
+      margin-top: 14px;
+    }
+
+    .tag {
+      background: rgba(59, 130, 246, 0.15);
+      border: 1px solid rgba(59, 130, 246, 0.3);
+      color: #93c5fd;
+      padding: 5px 12px;
+      border-radius: 999px;
+      font-size: 13px;
+    }
+
+    /* 内容卡片 */
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-radius: 18px;
+      padding: 24px;
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+    }
+
+    .card h2 {
+      font-size: 18px;
+      margin-bottom: 14px;
+      color: var(--primary-light);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .card p {
+      font-size: 14.5px;
+      color: #cbd5e1;
+      line-height: 1.7;
+    }
+
+    /* 作业导航列表 */
+    .homework-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-top: 10px;
+    }
+
+    .hw-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 18px;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 12px;
+      text-decoration: none;
+      color: var(--text-main);
+      transition: all 0.2s ease;
+    }
+
+    .hw-item:hover {
+      background: rgba(59, 130, 246, 0.1);
+      border-color: rgba(59, 130, 246, 0.4);
+      transform: translateY(-2px);
+    }
+
+    .hw-title {
+      font-size: 15px;
+      font-weight: 500;
+    }
+
+    .hw-badge {
+      font-size: 12px;
+      padding: 3px 8px;
+      border-radius: 6px;
+      background: rgba(16, 185, 129, 0.2);
+      color: #34d399;
+      border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+
+    .hw-badge.pending {
+      background: rgba(148, 163, 184, 0.15);
+      color: #94a3b8;
+      border-color: rgba(148, 163, 184, 0.2);
+    }
+
+    /* 按钮与链接 */
+    .links-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 12px;
+      margin-top: 12px;
+    }
+
+    .link-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 12px;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      color: var(--text-main);
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 500;
+      transition: all 0.2s ease;
+    }
+
+    .link-btn:hover {
+      background: var(--primary);
+      border-color: var(--primary);
+      box-shadow: 0 4px 15px rgba(37, 99, 235, 0.4);
+    }
+
+    footer {
+      margin-top: 20px;
+      text-align: center;
+      font-size: 13px;
+      color: #64748b;
+    }
+
+    @media (max-width: 480px) {
+      body {
+        padding: 24px 16px;
+      }
+      .profile-card {
+        padding: 28px 18px;
+      }
+      h1 {
+        font-size: 22px;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <!-- 个人资料 -->
+    <div class="profile-card">
+      <div class="avatar">M</div>
+      <h1>Zhitao Mao</h1>
+      <p class="subtitle">欢迎来到我的个人主页！这里也是未来三周所有作业与项目的统一展示空间。</p>
+      <div class="tags">
+        <span class="tag">🚀 Web Dev</span>
+        <span class="tag">🤖 AI & Agent</span>
+        <span class="tag">📈 Quant & Data</span>
+        <span class="tag">⚡ Vercel Deployed</span>
+      </div>
+    </div>
+
+    <!-- 课程与作业导航 -->
+    <div class="card">
+      <h2>📚 课程作业与项目进度</h2>
+      <p>后续几周的实践成果将持续在此更新：</p>
+      <div class="homework-list">
+        <div class="hw-item">
+          <div>
+            <div class="hw-title">第 1 周：代码仓库与公网主页搭建</div>
+            <div style="font-size: 12px; color: #94a3b8; margin-top: 3px;">GitHub + Vercel 自动化部署</div>
+          </div>
+          <span class="hw-badge">已完成</span>
+        </div>
+        <div class="hw-item">
+          <div>
+            <div class="hw-title">第 2 周：进阶应用与功能开发</div>
+            <div style="font-size: 12px; color: #94a3b8; margin-top: 3px;">待更新</div>
+          </div>
+          <span class="hw-badge pending">准备中</span>
+        </div>
+        <div class="hw-item">
+          <div>
+            <div class="hw-title">第 3 周：综合实战与结课成果</div>
+            <div style="font-size: 12px; color: #94a3b8; margin-top: 3px;">待更新</div>
+          </div>
+          <span class="hw-badge pending">准备中</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 快捷链接 -->
+    <div class="card">
+      <h2>🔗 快速链接与联系</h2>
+      <div class="links-grid">
+        <a href="https://github.com/2295596299" target="_blank" rel="noopener noreferrer" class="link-btn">
+          GitHub 主页
+        </a>
+        <a href="https://github.com/2295596299/1" target="_blank" rel="noopener noreferrer" class="link-btn">
+          本仓库源码
+        </a>
+        <a href="mailto:2295596299@qq.com" class="link-btn">
+          发送邮件
+        </a>
+      </div>
+    </div>
+
+    <footer>
+      Powered by GitHub & Vercel · 持续构建中
+    </footer>
+  </div>
+
+</body>
+</html>
