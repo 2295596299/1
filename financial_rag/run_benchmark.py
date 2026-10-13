@@ -1,327 +1,433 @@
-"""
-10 道基准测试题自动化评测与日志记录模块 (Run Benchmark)
+"""用独立 PDF 金标分别评价召回与实际生成答案，不以关键词出现判为答对。"""
 
-该模块对构建好的财报知识库执行作业规定的 10 道标准测试题（包含 2 道跨公司全景题），
-逐题记录：
-  1. 召回了哪些切块（包含块ID、公司、章节、页码、得分、类型）；
-  2. 答案是否正确（答对 / 部分答对 / 翻车）；
-  3. 错在何处与深度原因分析（归因：单块检索受限、缺乏跨文档Map-Reduce聚合、数值计算缺失等）；
-最终将完整记录输出为 evaluation_records.json 与 evaluation_records.md。
-"""
+from __future__ import annotations
 
+import argparse
+from collections import Counter
+from datetime import datetime, timezone, timedelta
+from decimal import Decimal, InvalidOperation
+import hashlib
 import json
-import os
-import sys
 from pathlib import Path
-from typing import Any, Dict, List
+import re
+import sys
 
-# 确保导入同目录模块
+from tqdm import tqdm
+
+# ==================== 可编辑参数区：IDE 直接运行此文件 ====================
 CURRENT_DIR = Path(__file__).resolve().parent
-if str(CURRENT_DIR) not in sys.path:
-    sys.path.insert(0, str(CURRENT_DIR))
+GOLD_PATH = CURRENT_DIR / "gold_cases.json"
+CHUNKS_PATH = CURRENT_DIR / "chunks.json"
+OUTPUT_DIR = CURRENT_DIR
+TOP_K = 6
+SHOW_PROGRESS = True
+# 填写已有真实模型响应的 JSON 路径可离线重评；None 则实际调用问答引擎。
+RESPONSES_PATH: Path | None = None
+RESUME = False  # True 时仅续跑同题目、同语料哈希的本次已完成响应。
+# =======================================================================
 
-from search_engine import FinancialHybridRetriever, synthesize_answer
-
-# 控制台编码安全配置
-if sys.platform == "win32":
-    try:
-        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
-    except Exception:
-        pass
-
-# ==========================================
-# 10 道标准测试题设计（8道单公司细节 + 2道跨公司全景）
-# ==========================================
-BENCHMARK_QUESTIONS: List[Dict[str, Any]] = [
-    {
-        "id": "Q01",
-        "category": "单公司财务细节 (表格精确查找)",
-        "question": "贵州茅台2023年的研发投入合计是多少？占营业收入的比例是多少？",
-        "expected_key_facts": ["研发投入合计6.22亿元左右 (621,507,535.87元)", "占营业收入比例0.42%"],
-        "target_companies": ["贵州茅台"],
-    },
-    {
-        "id": "Q02",
-        "category": "单公司产品拆分 (主营表格查找)",
-        "question": "五粮液2023年“五粮液产品”和“其他酒产品”的营业收入分别是多少？各自毛利率如何？",
-        "expected_key_facts": ["五粮液产品营收约628.04亿元", "其他酒产品营收约136.43亿元", "五粮液产品毛利率约86.64%", "其他酒产品毛利率约60.16%"],
-        "target_companies": ["五粮液"],
-    },
-    {
-        "id": "Q03",
-        "category": "单公司产销库存 (产销量表格查找)",
-        "question": "泸州老窖2023年传统名优白酒的生产量、销售量和库存量各是多少吨？",
-        "expected_key_facts": ["在第三节产销量情况表中明确列出白酒生产量、销售量、库存量"],
-        "target_companies": ["泸州老窖"],
-    },
-    {
-        "id": "Q04",
-        "category": "单公司客户集中度 (表格精确查找)",
-        "question": "山西汾酒2023年前五名客户销售额总额是多少？占年度销售总额的比例是多少？",
-        "expected_key_facts": ["前五名客户销售额约在几十亿元区间", "占比列在主要销售客户表中"],
-        "target_companies": ["山西汾酒"],
-    },
-    {
-        "id": "Q05",
-        "category": "单公司渠道网络 (表格/文本定位)",
-        "question": "洋河股份2023年末省内和省外的经销商数量各是多少家？",
-        "expected_key_facts": ["省内经销商约三千家左右", "省外经销商约五千家左右", "期末合计经销商数量"],
-        "target_companies": ["洋河股份"],
-    },
-    {
-        "id": "Q06",
-        "category": "单公司区域分布 (地区分部表格)",
-        "question": "古井贡酒2023年在华北、华南、华中各区域的营业收入分别是多少？核心粮仓在哪个大区？",
-        "expected_key_facts": ["华中区域占比超过80%是核心粮仓", "华北、华南区域具体营收规模"],
-        "target_companies": ["古井贡酒"],
-    },
-    {
-        "id": "Q07",
-        "category": "单公司业绩总览 (主要会计数据)",
-        "question": "今世缘2023年实现的营业收入和归母净利润分别是多少？同比增幅各是多少？",
-        "expected_key_facts": ["营收破100亿元 (约101.00亿元，同比增长约28%)", "归母净利润约31.36亿元 (同比增长约25%)"],
-        "target_companies": ["今世缘"],
-    },
-    {
-        "id": "Q08",
-        "category": "单公司定性战略 (管理层定性文本)",
-        "question": "迎驾贡酒在2023年报中披露的“生态酿造”战略与核心品牌文化是什么？",
-        "expected_key_facts": ["生态产区、生态水源、生态原料、生态酿造、生态洞藏", "中国生态白酒领军品牌定位"],
-        "target_companies": ["迎驾贡酒"],
-    },
-    {
-        "id": "Q09",
-        "category": "跨公司全景对比 (双巨头全景)",
-        "question": "对比贵州茅台与五粮液在2023年的酒类业务营业收入及毛利率水平，谁的盈利能力更高？",
-        "expected_key_facts": ["茅台营收约1476.9亿元，酒类毛利率超91%以上", "五粮液总营收约832.7亿元，酒类毛利率约81.9%", "茅台盈利能力显著高于五粮液"],
-        "target_companies": ["贵州茅台", "五粮液"],
-    },
-    {
-        "id": "Q10",
-        "category": "跨公司全景横向统计 (十家全景宏观)",
-        "question": "梳理2023年白酒行业10家上市公司的营业收入梯队分布，形成了怎样的竞争格局？",
-        "expected_key_facts": ["千亿梯队(茅台)", "500-1000亿梯队(五粮液)", "200-400亿梯队(汾酒/老窖/洋河)", "百亿梯队(古井/今世缘/迎驾等)"],
-        "target_companies": ["贵州茅台", "五粮液", "山西汾酒", "泸州老窖", "洋河股份", "古井贡酒", "今世缘", "迎驾贡酒", "口子窖", "舍得酒业"],
-    },
-]
+UNIT_FACTORS = {"元": Decimal(1), "万元": Decimal(10000), "亿元": Decimal(100000000),
+                "%": Decimal(1), "吨": Decimal(1), "家": Decimal(1), "个": Decimal(1)}
 
 
-def evaluate_benchmark(
-    questions: List[Dict[str, Any]] = BENCHMARK_QUESTIONS,
-    output_json_path: str = str(CURRENT_DIR / "evaluation_records.json"),
-    output_md_path: str = str(CURRENT_DIR / "evaluation_records.md"),
-    show_progress: bool = True
-) -> List[Dict[str, Any]]:
-    """
-    运行基准测试题集，执行检索，合成答案，并逐题评估命中与正误。
+def normalized(text: object) -> str:
+    """返回去除排版空白和标点后的证据文本，保留数字、小数点和汉字。
 
     Args:
-        questions: 10 道标准测试题配置。
-        output_json_path: 评估结果 JSON 导出路径。
-        output_md_path: 评估报告 Markdown 导出路径。
-        show_progress: 是否打印评测进度。
+        text: PDF/切块/模型返回的原文；不能据此判断语义正确性。
 
     Returns:
-        包含每道题召回块、答案、判定结果与原因分析的详细字典列表。
+        str：用于验证引用是否确实来自已召回原文的紧凑文本。
     """
-    retriever = FinancialHybridRetriever()
-    eval_results = []
+    return re.sub(r"[^\w\u4e00-\u9fff.%+\-−]", "", str(text))
 
+
+def decimal_value(value: object, unit: str) -> Decimal | None:
+    """将明确单位的数字转成精确十进制基准值，拒绝隐式猜单位。
+
+    Args:
+        value: 数字或十进制字符串，允许千分位和末尾百分号。
+        unit: 元、万元、亿元、%、吨、家或个；金额统一为元。
+
+    Returns:
+        Decimal 或 None：可比较的基准值，格式或单位不支持时返回 None。
+    """
+    if unit not in UNIT_FACTORS:
+        return None
+    try:
+        parsed = Decimal(str(value).replace(",", "").replace("，", "").strip().rstrip("%"))
+        return parsed * UNIT_FACTORS[unit] if parsed.is_finite() else None
+    except InvalidOperation:
+        return None
+
+
+def evidence_matches(fact: dict, chunk: dict) -> bool:
+    """核对召回块是否含目标公司、已核实物理页、指标行锚点与数值。
+
+    Args:
+        fact: 金标事实，包含 company、acceptable_pages、value、evidence_anchor。
+        chunk: 引擎召回块，必须保留 company、page、content 全文。
+
+    Returns:
+        bool：仅表示该事实的证据被召回，不代表模型答案正确。
+    """
+    content = normalized(chunk.get("content", ""))
+    return (chunk.get("company") == fact["company"]
+            and chunk.get("page") in fact.get("acceptable_pages", [fact["page"]])
+            and normalized(fact["value"]) in content
+            and normalized(fact["evidence_anchor"]) in content)
+
+
+def validate_saved_responses(responses: list[dict], questions: list[str], corpus_sha256: str,
+                             current_version: str, for_resume: bool = False) -> str:
+    """核对已保存响应的题目、语料与版本，禁止续跑时混合不同实现。
+
+    Args:
+        responses: 按实际执行顺序留存的模型响应，未标记 pipeline_version 的旧记录视为 v1。
+        questions: 本次完整金标题目列表。
+        corpus_sha256: 当前指定 chunks.json 的 SHA256。
+        current_version: 生产检索生成链公开的 PIPELINE_VERSION。
+        for_resume: True 时允许部分题目，但必须与当前生产版本一致；False 允许完整历史版重评。
+
+    Returns:
+        str：响应实际所属版本；空断点返回当前版本。
+
+    Raises:
+        ValueError: 题目、语料、数量不符，响应内部混版，或续跑版本与当前实现不同。
+    """
+    if (len(responses) > len(questions) or (not for_resume and len(responses) != len(questions))
+            or any(r.get("question") != questions[i] or r.get("corpus_sha256") != corpus_sha256
+                   for i, r in enumerate(responses))):
+        raise ValueError("保存响应与当前题目顺序、数量或语料哈希不一致，拒绝复用。")
+    versions = {str(r.get("pipeline_version", "v1")) for r in responses}
+    if len(versions) > 1:
+        raise ValueError("保存响应混合多个pipeline_version，不能作为一次评测。")
+    version = next(iter(versions), current_version)
+    if for_resume and version != current_version:
+        raise ValueError(f"断点为 {version}，当前生产链为 {current_version}，不能跨版本续跑；请另存后完整重测。")
+    return version
+
+
+def score_case(case: dict, result: dict, chunk_index: dict[str, dict]) -> dict:
+    """分别评价证据召回、数值回答、引用及需要人工核验的子问题。
+
+    1. 召回评分只看独立金标证据是否进入实际 retrieved_chunks。
+    2. 答案评分核对 claims 的数值、单位、期间、口径与引用，并检查
+       该数值确实出现在最终回答，不能把找到证据当成回答正确。
+    3. 定性结论、题干歧义和自由叙述含义不使用关键词自动判对。
+
+    Args:
+        case: gold_cases.json 中的一题，facts 为独立 PDF 金标。
+        result: 对同一个原始 question 执行问答所得的实际模型响应。
+        chunk_index: 全量真实切块映射，用于还原召回块及核验引用。
+
+    Returns:
+        dict：逐事实召回、答案检查项、人工复核队列及原始回答。
+    """
+    retrieved = []
+    for item in result.get("retrieved_chunks", []):
+        chunk_id = item if isinstance(item, str) else item.get("chunk_id", "")
+        known = chunk_index.get(chunk_id)
+        # 只承认真实索引内的切块，响应不能自行伪造证据正文。
+        if known:
+            retrieved.append({**known, "score": item.get("score") if isinstance(item, dict) else None})
+    by_id = {chunk["chunk_id"]: chunk for chunk in retrieved}
+    claims = result.get("claims", [])
+    answer = str(result.get("answer", ""))
+    citations = result.get("citations", [])
+    citation_ids = {c if isinstance(c, str) else c.get("chunk_id", "") for c in citations}
+    invalid_citations = []
+    for citation in citations:
+        cid = citation if isinstance(citation, str) else citation.get("chunk_id", "")
+        actual = by_id.get(cid)
+        if actual is None or (isinstance(citation, dict) and any(
+                key in citation and citation[key] != actual.get(key) for key in ("company", "page"))):
+            invalid_citations.append(citation)
+    fact_rows = []
+    for fact in case.get("facts", []):
+        recalled = [c["chunk_id"] for c in retrieved if evidence_matches(fact, c)]
+        valid_metrics = {normalized(m) for m in [fact["metric"], *fact.get("metric_aliases", [])]}
+        valid_scopes = {normalized(s) for s in [fact["scope"], *fact.get("scope_aliases", [])]}
+        candidates = [c for c in claims if c.get("company") == fact["company"]
+                      and normalized(c.get("metric", "")) in valid_metrics]
+        checks = []
+        for claim in candidates:
+            cited = by_id.get(claim.get("chunk_id", ""), {})
+            claim_quote = re.sub(r"\s+", "", str(claim.get("quote", "")))
+            gold_value = decimal_value(fact["value"], fact["unit"])
+            claim_unit = str(claim.get("unit", "")).replace("人民币", "").replace("％", "%")
+            claim_value = decimal_value(claim.get("value", ""), claim_unit)
+            dimension_ok = ((fact["unit"] in {"元", "万元", "亿元"} and claim_unit in {"元", "万元", "亿元"})
+                            or claim_unit == fact["unit"] or {claim_unit, fact["unit"]} <= {"家", "个"})
+            period = str(fact["period"])
+            claim_period = re.sub(r"\s+", "", str(claim.get("period", "")))
+            claim_period = re.sub(r"[（(]本期[）)]$", "", claim_period)
+            if re.fullmatch(r"\d{4}", period):
+                periods = {period, f"{period}年", f"{period}年度", f"{period}全年",
+                           f"{period}年1—12月", f"{period}年1-12月", f"{period}-01-01至{period}-12-31"}
+            else:
+                periods = {period, f"{period[:4]}年12月31日", f"{period[:4]}年末", f"{period[:4]}年期末"}
+            period_ok = claim_period in periods
+            details = {
+                "value_unit": dimension_ok and gold_value == claim_value and claim_value is not None,
+                "period": period_ok,
+                "scope": normalized(claim.get("scope", "")) in valid_scopes,
+                "citation": bool(cited) and claim.get("page") == cited.get("page")
+                    and cited.get("company") == fact["company"]
+                    and claim.get("chunk_id") in citation_ids and evidence_matches(fact, cited),
+                "quote": bool(claim_quote) and claim_quote in re.sub(r"\s+", "", str(cited.get("content", "")))
+                    and normalized(fact["value"]) in normalized(claim_quote),
+                "in_answer": normalized(claim.get("value", "")) in normalized(answer)
+                    and bool(str(claim.get("value", ""))),
+            }
+            checks.append({"claim": claim, "checks": details, "passed": all(details.values())})
+        fact_rows.append({"gold": fact, "recalled": bool(recalled), "recalled_chunk_ids": recalled,
+                          "answer_verified": any(c["passed"] for c in checks), "candidate_checks": checks})
+
+    # 定性题召回也须有公司、页码与原文，不能仅凭公司名出现计为通过。
+    evidence_rows = []
+    for evidence in case.get("evidence", []):
+        matches = [c["chunk_id"] for c in retrieved if c.get("company") == evidence["company"]
+                   and c.get("page") == evidence["page"]
+                   and re.sub(r"\s+", "", evidence["quote"]) in re.sub(r"\s+", "", c.get("content", ""))]
+        evidence_rows.append({**evidence, "recalled_chunk_ids": matches, "recalled": bool(matches)})
+    evidence_total = len(fact_rows) or len(evidence_rows)
+    evidence_hits = sum(r["recalled"] for r in fact_rows or evidence_rows)
+    verified = sum(r["answer_verified"] for r in fact_rows)
+    manual = list(case.get("manual_review", []))
+    ranking = None
+    if case.get("expected_rank"):
+        rank = result.get("ranking")
+        if isinstance(rank, list) and rank and isinstance(rank[0], dict):
+            rank = [r.get("company") for r in rank]
+        ranking = {"expected": case["expected_rank"], "actual": rank,
+                   "verified": rank == case["expected_rank"]}
+        if not rank:
+            manual.append("模型未返回可核对的结构化 ranking；不能仅凭答案出现公司名称判排序正确。")
+        elif not ranking["verified"]:
+            manual.append("结构化 ranking 与按独立金标数值计算的排序不一致。")
+    unsupported_claims = []
+    for claim in claims:
+        cited = by_id.get(claim.get("chunk_id", ""), {})
+        quote = re.sub(r"\s+", "", str(claim.get("quote", "")))
+        if (not quote or quote not in re.sub(r"\s+", "", str(cited.get("content", "")))
+                or claim.get("company") != cited.get("company")
+                or claim.get("page") != cited.get("page")
+                or claim.get("chunk_id") not in citation_ids):
+            unsupported_claims.append(claim)
+    status = "failed"
+    if case["gold_status"] == "pending_review":
+        status = "pending_gold_review"
+    elif case["kind"] == "out_of_corpus":
+        status = "refusal_needs_review" if result.get("status") in {"insufficient_evidence", "refused", "out_of_scope"} and not claims else "failed"
+    elif not fact_rows:
+        status = "needs_manual_review"
+    elif verified == len(fact_rows) and not unsupported_claims:
+        status = "numeric_verified_needs_review" if manual else "numeric_verified"
+    elif verified:
+        status = "partial"
+    if invalid_citations or (ranking is not None and not ranking["verified"]):
+        status = "partial" if verified else "failed"
+    if result.get("error"):
+        status = "execution_error"
+    return {"id": case["id"], "question": case["question"], "kind": case["kind"],
+            "gold_status": case["gold_status"], "target_companies": case["target_companies"],
+            "recall": {"matched": evidence_hits, "total": evidence_total,
+                       "rate": evidence_hits / evidence_total if evidence_total else None},
+            "answer_evaluation": {"metric_name": "严格结构化契约", "status": status, "verified_facts": verified,
+                                  "total_facts": len(fact_rows), "unsupported_claims": unsupported_claims,
+                                  "invalid_citations": invalid_citations,
+                                  "ranking": ranking, "manual_review": manual,
+                                  "manual_review_completed": False},
+            "fact_checks": fact_rows, "qualitative_evidence_checks": evidence_rows,
+            "generated_answer": answer, "engine_status": result.get("status"),
+            "citations": citations, "claims": claims,
+            "retrieved_chunks": [{k: v for k, v in c.items() if k != "content"} for c in retrieved],
+            "engine_metadata": {k: result[k] for k in ("model", "provider", "usage", "error", "coverage", "generation", "retrieval", "model_run", "validation_issues", "unvalidated_draft", "corpus_sha256", "pipeline_version") if k in result}}
+
+
+def evaluate_benchmark(gold_path: Path = GOLD_PATH, chunks_path: Path = CHUNKS_PATH,
+                       output_dir: Path = OUTPUT_DIR, top_k: int = TOP_K,
+                       show_progress: bool = SHOW_PROGRESS, responses_path: Path | None = RESPONSES_PATH,
+                       resume: bool = RESUME) -> dict:
+    """运行实际问答或重评已有真实响应，输出可逐项复核的独立评测。
+
+    Args:
+        gold_path: 独立 PDF 金标，只用于评分，不传入检索/生成模块。
+        chunks_path: 全文切块 JSON，用于真实检索和出处核验。
+        output_dir: 保存评测 JSON、Markdown 与摘要的目录。
+        top_k: 每题检索参数；实际全景公司配额由引擎决定。
+        show_progress: 默认显示读取、问答和逐题评分进度。
+        responses_path: 可选真实响应 JSON，未提供时调用实际问答引擎。
+        resume: 是否续跑输出目录中同题目、同语料的部分真实模型响应。
+
+    Returns:
+        dict：召回率、结构化数值事实通过率和人工复核数量。
+
+    Raises:
+        ValueError: 语料只有前75页或响应与题目不对应时拒绝输出完整成绩。
+    """
     if show_progress:
-        print(f"\n[基准测试] 开始执行 10 道题目评测流水线...")
-
-    for q_item in questions:
-        qid = q_item["id"]
-        q_text = q_item["question"]
-        q_cat = q_item["category"]
-
-        if show_progress:
-            print(f"\n>>> 正在评测 [{qid}] {q_text[:35]}...")
-
-        # 执行混合检索 Top-4 切块
-        retrieved = retriever.retrieve(q_text, top_k=4)
-        synth = synthesize_answer(q_text, retrieved)
-
-        # 检查召回切块中是否覆盖了关键要素
-        retrieved_summary = []
-        full_evidence_text = ""
-        for chunk, score in retrieved:
-            cite = f"【{chunk['company']}】{chunk['chapter']} 第{chunk['page']}页 ({chunk['type']})"
-            retrieved_summary.append({
-                "chunk_id": chunk["chunk_id"],
-                "company": chunk["company"],
-                "chapter": chunk["chapter"],
-                "page": chunk["page"],
-                "type": chunk["type"],
-                "score": round(score, 3),
-                "citation": cite,
-                "preview": chunk["content"][:200].replace("\n", " ")
-            })
-            full_evidence_text += chunk["content"] + "\n"
-
-        # 自动化评估准则判定
-        is_cross = len(q_item["target_companies"]) > 1
-        status = "答对"
-        failure_reason = "无。精准召回了关键表格与出处页码，核心指标与数字完全吻合。"
-
-        # 判定逻辑
-        if qid == "Q01":
-            if "621,507,535.87" in full_evidence_text or "研发投入" in full_evidence_text:
-                status = "答对"
-                failure_reason = "精准命中第11页研发投入明细表，成功定位费用化/资本化拆分及0.42%占比。"
-            else:
-                status = "部分答对"
-                failure_reason = "召回了现金流相关段落，但未排在第一名。"
-
-        elif qid == "Q02":
-            if "五粮液产品" in full_evidence_text and ("62,804" in full_evidence_text or "营业收入" in full_evidence_text):
-                status = "答对"
-                failure_reason = "精准命中第16页主营业务分行业、分产品表格，五粮液与系列酒营收与毛利率准确呈现。"
-            else:
-                status = "部分答对"
-                failure_reason = "召回了部分酒类收入，但产品拆分表需要二次过滤。"
-
-        elif qid == "Q03":
-            if "生产量" in full_evidence_text or "销售量" in full_evidence_text or "库存量" in full_evidence_text:
-                status = "答对"
-                failure_reason = "命中产销存分析表格，吨数与变动比率清晰还原。"
-            else:
-                status = "部分答对"
-                failure_reason = "检索到了库存金额科目，但物理产销量吨数在另一张行业专用表中。"
-
-        elif qid == "Q04":
-            if "前五" in full_evidence_text or "客户" in full_evidence_text:
-                status = "答对"
-                failure_reason = "命中第17页主要销售客户及主要供应商情况表，前五大客户销售额及占比确凿。"
-            else:
-                status = "翻车"
-                failure_reason = "未能精确召回前五大客户表格。"
-
-        elif qid == "Q05":
-            if "经销商" in full_evidence_text:
-                status = "答对"
-                failure_reason = "命中了渠道营销网络表格，省内外经销商期末分布清晰。"
-            else:
-                status = "部分答对"
-                failure_reason = "召回了销售费用与推广活动段落，经销商数量在专有附表中。"
-
-        elif qid == "Q06":
-            if "华中" in full_evidence_text or "华北" in full_evidence_text:
-                status = "答对"
-                failure_reason = "命中了分地区营业收入明细表，清晰显示华中区域为其核心大本营。"
-            else:
-                status = "部分答对"
-                failure_reason = "区域分部表格中简称与全称存在词频差异。"
-
-        elif qid == "Q07":
-            if "10,098" in full_evidence_text or "101.00" in full_evidence_text or "营业收入" in full_evidence_text:
-                status = "答对"
-                failure_reason = "命中第二节主要会计数据表，营收破百亿与净利润增幅清晰完备。"
-            else:
-                status = "部分答对"
-                failure_reason = "营收数据在多个报表重复出现。"
-
-        elif qid == "Q08":
-            if "生态" in full_evidence_text:
-                status = "答对"
-                failure_reason = "定性文本检索优势显著，完整召回迎驾贡酒管理层讨论中关于生态产区、生态水源与酿造的战略阐述。"
-            else:
-                status = "部分答对"
-                failure_reason = "生态关键词被财务表格稀释。"
-
-        elif qid == "Q09":
-            # 跨公司双巨头全景题
-            has_mt = any(c["company"] == "贵州茅台" for c in retrieved_summary)
-            has_wly = any(c["company"] == "五粮液" for c in retrieved_summary)
-            if has_mt and has_wly:
-                status = "答对"
-                failure_reason = "混合检索在同一窗口中同时召回了茅台与五粮液的主营业务表格，成功支持横向对比。"
-            else:
-                status = "部分答对"
-                failure_reason = "单次检索倾向于集中在单一大市值实体（如只召回了茅台），缺少对多实体的配额约束召回机制。"
-
-        elif qid == "Q10":
-            # 跨10家公司全景横向宏观题
-            recalled_companies = set(c["company"] for c in retrieved_summary)
-            if len(recalled_companies) >= 4:
-                status = "部分答对"
-                failure_reason = "【经典翻车/受限案例】全景题需要汇总全部10家公司的营收数据，而单次检索 Top-4 切块受限于 Context 窗口，只能召回其中 2~3 家公司的局部块，无法单步拼出全行业梯队全景，必须依赖 Map-Reduce 或结构化分治检索。"
-            else:
-                status = "翻车"
-                failure_reason = "【经典翻车案例】RAG 检索单次 Top-K 模式无法承载跨 10 份财报的大跨度横向归纳，容易遗漏非头部企业，且无法自动做全行业排序求和。"
-
-        record = {
-            "id": qid,
-            "category": q_cat,
-            "question": q_text,
-            "target_companies": q_item["target_companies"],
-            "retrieved_chunks": retrieved_summary,
-            "generated_answer": synth["answer"],
-            "status": status,
-            "failure_analysis": failure_reason,
-        }
-        eval_results.append(record)
-
-    # 导出 JSON
-    with open(output_json_path, "w", encoding="utf-8") as f:
-        json.dump(eval_results, f, ensure_ascii=False, indent=2)
-
-    # 导出 Markdown 表格与详细报告
-    correct_count = sum(1 for r in eval_results if r["status"] == "答对")
-    partial_count = sum(1 for r in eval_results if r["status"] == "部分答对")
-    fail_count = sum(1 for r in eval_results if r["status"] == "翻车")
-
-    md_lines = [
-        "# 白酒行业财报问答知识库 (RAG) 10 题基准评测记录",
-        "",
-        f"> 评测时间: 2026-09-28  | 知识库规模: **2,971** 个切块 (10 家白酒上市公司 2023 年报)",
-        f"> 综合评测成绩: **答对 {correct_count} 道** | **部分答对 {partial_count} 道** | **翻车 {fail_count} 道**",
-        "",
-        "## 一、10 道测试题评测总览表",
-        "",
-        "| 题号 | 题目类型 | 目标公司 | 核心考察点 | 评测结论 | 核心归因简述 |",
-        "| :--- | :--- | :--- | :--- | :---: | :--- |",
-    ]
-
-    for r in eval_results:
-        comps = "/".join(r["target_companies"][:3]) + ("等" if len(r["target_companies"]) > 3 else "")
-        md_lines.append(
-            f"| **{r['id']}** | {r['category']} | {comps} | {r['question'][:22]}... | "
-            f"**{r['status']}** | {r['failure_analysis'][:32]}... |"
-        )
-
-    md_lines.extend([
-        "",
-        "---",
-        "",
-        "## 二、逐题详细评测与召回切块追溯",
-        ""
-    ])
-
-    for r in eval_results:
-        md_lines.append(f"### 📌 [{r['id']}] {r['question']}")
-        md_lines.append(f"- **分类**: `{r['category']}` | **最终判定**: **{r['status']}**")
-        md_lines.append(f"- **归因分析**: {r['failure_analysis']}")
-        md_lines.append("- **召回切块与出处证据**:")
-        for chk in r["retrieved_chunks"]:
-            md_lines.append(f"  - `{chk['citation']}` (Score: {chk['score']})")
-        md_lines.append("")
-
-    with open(output_md_path, "w", encoding="utf-8") as f:
-        f.write("\n".join(md_lines))
-
+        print("[评测 1/3] 读取独立 PDF 金标与全文切块，核验题目和出处。", flush=True)
+    gold = json.loads(gold_path.read_text(encoding="utf-8"))
+    raw_chunks = json.loads(chunks_path.read_text(encoding="utf-8"))
+    chunks = raw_chunks.get("chunks", []) if isinstance(raw_chunks, dict) else raw_chunks
+    chunk_index = {c["chunk_id"]: c for c in chunks}
+    manifest = json.loads(chunks_path.with_name("parse_manifest.json").read_text(encoding="utf-8"))
+    reports = manifest.get("reports", [])
+    company_counts = Counter(c["company"] for c in chunks)
+    gold_pdfs = {p["company"]: p for p in gold["pdf_inventory"]}
+    if (manifest.get("status") != "complete" or manifest.get("total_chunks") != len(chunks)
+            or len(chunk_index) != len(chunks)
+            or {r["company"] for r in reports} != set(company_counts)
+            or set(company_counts) != set(gold_pdfs)
+            or manifest.get("total_pages") != sum(r["total_pages"] for r in reports)
+            or manifest.get("processed_pages") != manifest.get("total_pages")):
+        raise ValueError("全文解析清单与切块/金标报告集不一致，拒绝评测不完整语料。")
+    for report in reports:
+        company = report["company"]
+        actual_pages = {c["page"] for c in chunks if c["company"] == company}
+        if (report.get("status") != "complete" or report.get("page_errors")
+                or report.get("no_text_pages")
+                or not report["total_pages"] == report["processed_pages"] == report["pages_with_text"]
+                or actual_pages != set(range(1, report["total_pages"] + 1))
+                or report["chunks"] != company_counts[company]
+                or report["total_pages"] != gold_pdfs[company]["page_count"]
+                or report["pdf_sha256"] != gold_pdfs[company]["sha256"]):
+            raise ValueError(f"{company} 的全文页覆盖、错误记录、切块计数或PDF哈希不一致。")
+    cases = gold["cases"]
+    questions = [c["question"] for c in cases]
+    corpus_hash = hashlib.sha256(chunks_path.read_bytes()).hexdigest()
+    implementation_hashes = {name: hashlib.sha256((CURRENT_DIR / name).read_bytes()).hexdigest()
+                             for name in ("run_benchmark.py", "search_engine.py", "model_client.py", "embeddings.py", "parse_and_chunk.py")}
+    if __package__:
+        from .search_engine import PIPELINE_VERSION
+    else:
+        from search_engine import PIPELINE_VERSION
+    output_dir.mkdir(parents=True, exist_ok=True)
     if show_progress:
-        print(f"\n[基准测试] [DONE] 10 道测试题评测完成！")
-        print(f"  - 答对: {correct_count} / 部分答对: {partial_count} / 翻车: {fail_count}")
-        print(f"  - 评测记录导出至:\n    {output_json_path}\n    {output_md_path}")
-
-    return eval_results
+        stage = "读取已有真实响应重评，不调用模型。" if responses_path else "执行新的真实问答；模型调用可能需要等待。"
+        print(f"[评测 2/3] {len(cases)} 道问题：{stage}", flush=True)
+    if responses_path:
+        raw = json.loads(responses_path.read_text(encoding="utf-8"))
+        responses = raw.get("responses", []) if isinstance(raw, dict) else raw
+        response_version = validate_saved_responses(responses, questions, corpus_hash, PIPELINE_VERSION)
+        if show_progress and response_version != PIPELINE_VERSION:
+            print(f"[历史重评] 响应版本为 {response_version}，当前生产链为 {PIPELINE_VERSION}；本次不冒充当前版本。", flush=True)
+        mode = "regrade_saved_responses"
+    else:
+        if __package__:
+            from .search_engine import answer_questions
+        else:
+            from search_engine import answer_questions
+        responses = []
+        checkpoint = output_dir / "evaluation_responses.json"
+        if resume and checkpoint.exists():
+            responses = json.loads(checkpoint.read_text(encoding="utf-8"))
+            validate_saved_responses(responses, questions, corpus_hash, PIPELINE_VERSION, for_resume=True)
+        for index in tqdm(range(len(responses), len(questions)), total=len(questions),
+                          initial=len(responses), desc="真实问答", disable=not show_progress):
+            question = questions[index]
+            if show_progress:
+                print(f"\n[Q{index + 1:02}/{len(questions)}] {question}", flush=True)
+            batch = answer_questions([question], chunks_path=chunks_path, top_k=top_k, show_progress=show_progress)
+            if len(batch) != 1:
+                raise ValueError("问答结果数量与题目不一致，不能生成完整成绩。")
+            if batch[0].get("pipeline_version", "v1") != PIPELINE_VERSION:
+                raise ValueError("本次响应未标记当前生产版本，拒绝混入该轮评测。")
+            responses.append({**batch[0], "question": question})
+            # 每题完成即留档，长模型调用被中断时仍保有此前真实响应。
+            (output_dir / "evaluation_responses.json").write_text(json.dumps(responses, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        mode = "live_engine"
+        response_version = validate_saved_responses(responses, questions, corpus_hash, PIPELINE_VERSION, for_resume=True)
+    (output_dir / "evaluation_responses.json").write_text(json.dumps(responses, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    if show_progress:
+        print("[评测 3/3] 分别核对召回、答案、口径和引用，定性结论进入人工复核。", flush=True)
+    records = [score_case(case, result, chunk_index) for case, result in
+               tqdm(zip(cases, responses), total=len(cases), desc="逐题评分", disable=not show_progress)]
+    facts_total = sum(r["answer_evaluation"]["total_facts"] for r in records)
+    facts_verified = sum(r["answer_evaluation"]["verified_facts"] for r in records)
+    recall_total = sum(r["recall"]["total"] for r in records)
+    recall_matched = sum(r["recall"]["matched"] for r in records)
+    summary = {"evaluated_at": datetime.now(timezone(timedelta(hours=8))).isoformat(timespec="seconds"),
+               "mode": mode, "question_count": len(cases), "chunk_count": len(chunks),
+               "response_pipeline_version": response_version, "current_pipeline_version": PIPELINE_VERSION,
+               "implementation_sha256": implementation_hashes,
+               "pdf_count": len(reports), "total_pdf_pages": manifest["total_pages"],
+               "parser_version": manifest.get("parser_config", {}).get("version"),
+               "parse_manifest_sha256": hashlib.sha256(chunks_path.with_name("parse_manifest.json").read_bytes()).hexdigest(),
+               "fulltext_manifest_verified": True,
+               "gold_sha256": hashlib.sha256(gold_path.read_bytes()).hexdigest(),
+               "chunks_sha256": hashlib.sha256(chunks_path.read_bytes()).hexdigest(),
+               "recall": {"matched": recall_matched, "total": recall_total,
+                          "micro_rate": recall_matched / recall_total if recall_total else None},
+               "answer_numeric_facts": {"metric_name": "严格结构化契约", "verified": facts_verified, "total": facts_total,
+                                        "rate": facts_verified / facts_total if facts_total else None},
+               "answer_status_counts": dict(Counter(r["answer_evaluation"]["status"] for r in records)),
+               "fully_manually_reviewed_questions": 0,
+               "limitations": ([f"本次重评的是历史响应 {response_version}，当前实现为 {PIPELINE_VERSION}，不是当前版本的新模型运行。"] if response_version != PIPELINE_VERSION else []) +
+                              ["严格结构化契约要求数值、指标名、期间、口径文字、出处同时通过，不能当成财务数字或整题正确率；自然语义与原文舍入另由独立PDF审阅评价。",
+                               "金标页未列出的其他有效出处可能造成严格评分漏判，应补证据后重评而非改为关键词命中。",
+                               "Q03题干分类不在原文，保留待核口径状态；不计入已核验数值事实分母。"]}
+    (output_dir / "evaluation_records.json").write_text(json.dumps(records, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    (output_dir / "evaluation_summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    lines = ["# 财报真实问答独立评测", "", f"执行时间：{summary['evaluated_at']}", "",
+             f"响应版本：{response_version}；当前生产链：{PIPELINE_VERSION}；模式：{mode}。", "",
+             "**自动字段契约不等于答案语义正确率。** 自然口径描述、指标别名或原文舍入会造成保守漏判，"
+             "不能从低通过数推断全部财务数字错误。实际回答的结论、出处和失败原因见"
+             "[Codex 独立 PDF 逐题复核](manual_review.md)，该复核须与本轮响应 SHA 一致。", "",
+             f"题目 {len(cases)} 道；切块 {len(chunks)} 个；证据召回 {recall_matched}/{recall_total}；"
+             f"严格结构化契约通过 {facts_verified}/{facts_total}。", "",
+             "以上是不同维度的成绩，不能换算成‘9/10答对’。定性、歧义、排序和拒答说明均保留人工复核。", "",
+             "| 题号 | 证据召回 | 严格结构化契约 | 自动状态 |", "| --- | --- | --- | --- |"]
+    for record in records:
+        recall, answer_eval = record["recall"], record["answer_evaluation"]
+        lines.append(f"| {record['id']} | {recall['matched']}/{recall['total']} | "
+                     f"{answer_eval['verified_facts']}/{answer_eval['total_facts']} | {answer_eval['status']} |")
+    for record in records:
+        lines.extend(["", f"## {record['id']} {record['question']}", "", "### 实际回答", "", record["generated_answer"], "", "### 独立金标与逐项判分", ""])
+        for item in record["fact_checks"]:
+            fact = item["gold"]
+            lines.append(f"- {fact['company']} / {fact['metric']} / {fact['scope']} / {fact['period']}："
+                         f"{fact['value']} {fact['unit']}，PDF第{fact['page']}页；召回={item['recalled']}，严格契约通过={item['answer_verified']}。")
+            lines.append(f"  原文：{fact['quote']}")
+            if not item["answer_verified"]:
+                failures = [", ".join(k for k, v in c["checks"].items() if not v) for c in item["candidate_checks"]]
+                lines.append(f"  未通过项：{'；'.join(failures) if failures else '缺少对应公司和指标的明确 claim。'}")
+        for todo in record["answer_evaluation"]["manual_review"]:
+            lines.append(f"- 待人工核验：{todo}")
+        lines.extend(["", "### 实际召回出处", ""])
+        lines.extend(f"- {c['company']}，PDF第{c['page']}页，`{c['chunk_id']}`。" for c in record["retrieved_chunks"])
+    (output_dir / "evaluation_records.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    if show_progress:
+        print(f"评测已保存：召回 {recall_matched}/{recall_total}；严格结构化契约 {facts_verified}/{facts_total}；独立PDF审阅另行保存。", flush=True)
+    return summary
 
 
 def main() -> None:
-    """直接执行 10 题基准评测。"""
-    evaluate_benchmark()
+    """以 IDE、脚本或模块入口执行完整评测。
+
+    Args:
+        无参数；从顶部可编辑参数及命令行读取路径、top_k 和进度开关。
+
+    Returns:
+        None；保存同一格式的评测记录与摘要。
+    """
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8")
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--gold", type=Path, default=GOLD_PATH)
+    parser.add_argument("--chunks", type=Path, default=CHUNKS_PATH)
+    parser.add_argument("--output-dir", type=Path, default=OUTPUT_DIR)
+    parser.add_argument("--responses", type=Path, default=RESPONSES_PATH)
+    parser.add_argument("--top-k", type=int, default=TOP_K)
+    parser.add_argument("--resume", action="store_true", default=RESUME)
+    parser.add_argument("--no-progress", action="store_true")
+    args = parser.parse_args()
+    evaluate_benchmark(args.gold, args.chunks, args.output_dir, args.top_k,
+                       SHOW_PROGRESS and not args.no_progress, args.responses, args.resume)
 
 
 if __name__ == "__main__":

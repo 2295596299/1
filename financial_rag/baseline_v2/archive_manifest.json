@@ -1,0 +1,121 @@
+{
+  "archived_at": "2026-10-13T10:34:04+08:00",
+  "baseline": "interim_second_full_run_v2_before_chapter_correction",
+  "question_count": 14,
+  "pipeline_version": "v2",
+  "corpus_sha256": "f7806b66e7be416bf2a893f45d9622e359d13582f9d8c143472e16ffdc95583a",
+  "model_run_ids": [
+    "20261013T022644_417830Z",
+    "20261013T022702_369836Z",
+    "20261013T022728_642611Z",
+    "20261013T022744_017702Z",
+    "20261013T022807_907303Z",
+    "20261013T022822_915381Z",
+    "20261013T022855_457997Z",
+    "20261013T022923_994435Z",
+    "20261013T022947_598277Z",
+    "20261013T023021_088405Z",
+    "20261013T023131_555263Z",
+    "20261013T023152_291119Z",
+    "20261013T023216_306040Z",
+    "20261013T023232_237186Z"
+  ],
+  "model_request_sha256": [
+    "04b9e43d942f1cc8e59f94c0d30b8f8e3b9e87e196a43d210db361bf707a2ec3",
+    "534b141348afe64d776f7354f6e3621af0b22c863d27dd8763253eafb368ecf9",
+    "5b7db64576ff2ca05356a6d16572b56d6bae1235253f3a29c91f6642bc650a19",
+    "80e178c5c9c9132534f57d36c81c5dc1816f048e20aa2beb2b47a7ff20321c5f",
+    "7a0ecac73087989936f1a5d397f744be1d19c85044ad91880e1f6ba5d6b64a43",
+    "5ed4ec842060540cd583211b640564f43cab244bebc6974102380e8a026e98ad",
+    "8f5edc0babe060a905f02bbdfbeea91033004c313857860d928d6f1eeb23163c",
+    "9e8c3fa950b212014376921925525298ba778ee0e0a883f3ee01ad0456dd8617",
+    "f9689c5736f5bc5b72d950991b4fc759514b6af1de1786b4efe3b5f61e080c42",
+    "f36182d857e4872d217f38db6660f649caa62e2b257c020ed7c21dbc64f610b3",
+    "a2fb8a19c40c325c5a077e0d91b22a7aa79ede947cd61f8665cf39f5fa721026",
+    "ef37084c5fe3adcae3a497452131abe66fd3cd47846c5395af22d657b44dfc30",
+    "5a8bd93323889d1ed11822c7a40e85efa6fb0bc452b301e2a802536033dbd424",
+    "5cd92a87df28b62cf3811a9dae534d8b8bbc49c2ee018477c99d2c623dc8b2f0"
+  ],
+  "files": [
+    {
+      "name": "chunks.json.gz",
+      "sha256": "bd3f3cffeed046ef4c58467db971655a18382f7dc8767bcaed1bb95a60d32314",
+      "size_bytes": 1683196
+    },
+    {
+      "name": "embeddings.py",
+      "sha256": "519fc4322b32f78fd00bab7619f3a1392c64d70bdf82cc0efa80b747880360f9",
+      "size_bytes": 4023
+    },
+    {
+      "name": "evaluation_records.json",
+      "sha256": "245c370575115af306a118e56994470adb054c0ffa85340c746b9b574b3b968d",
+      "size_bytes": 224032
+    },
+    {
+      "name": "evaluation_records.md",
+      "sha256": "19b41446b1d8ea4e75cb4b8206481ce387bdc20c2fe5955e2e8f57aae2e899e2",
+      "size_bytes": 27944
+    },
+    {
+      "name": "evaluation_responses.json",
+      "sha256": "6be2ce2790872fb3d2adf4948a0e8f18c3bac3cb6a3aa92e23568212178ab764",
+      "size_bytes": 389285
+    },
+    {
+      "name": "evaluation_summary.json",
+      "sha256": "ce74f325c10074fcde5dfa44ffdaf546916b2fb391f8b6059528a6b07cc72377",
+      "size_bytes": 1755
+    },
+    {
+      "name": "gold_cases.json",
+      "sha256": "02878c7131be786457c59039d2e029b81af0b6df1d3ebaaf720b36152a4cc6b7",
+      "size_bytes": 41177
+    },
+    {
+      "name": "manual_review.json",
+      "sha256": "9d7879d0b9e1f97a86af51b35c984c867373cfb97f4b622b766e89cb4dedf21c",
+      "size_bytes": 4007
+    },
+    {
+      "name": "model_client.py",
+      "sha256": "23604987f821bca2aad89bc3cce9e883d5af7b6c816dffeb9d40d0d064d08d55",
+      "size_bytes": 16308
+    },
+    {
+      "name": "parse_manifest.json",
+      "sha256": "a8f86cbf85138a628205e1bd5c719effd8a043d03a73c281bf74cb1539deffcb",
+      "size_bytes": 6999
+    },
+    {
+      "name": "README.md",
+      "sha256": "2d6235d95b182c5152f2c13bb970dd4cffa6b0490dfde1d4998f499847492c00",
+      "size_bytes": 1163
+    },
+    {
+      "name": "run_benchmark.py",
+      "sha256": "d9d4830129e8350b1dadbb1051c694b393d7ba7d1d2b745981d78bb6d686ccf0",
+      "size_bytes": 26594
+    },
+    {
+      "name": "search_engine.py",
+      "sha256": "b16da25615831034e1018b4faf9ffba24932e46a4cffd6ad925bf4782aeb8986",
+      "size_bytes": 22039
+    },
+    {
+      "name": "test_benchmark.py",
+      "sha256": "2fbd1f99d11c9f6db4042bbe05e39094dbba97d45d09850ddc21078a9021b940",
+      "size_bytes": 5296
+    },
+    {
+      "name": "web_new_question.json",
+      "sha256": "ca8afe65a09211d2f1cd22251cdd65dc72b5c7996b560196fbd32230c8aab1d1",
+      "size_bytes": 16272
+    }
+  ],
+  "extra_web_example": {
+    "file": "web_new_question.json",
+    "sha256": "ca8afe65a09211d2f1cd22251cdd65dc72b5c7996b560196fbd32230c8aab1d1",
+    "kind": "additional_browser_query_not_in_14_question_baseline"
+  }
+}

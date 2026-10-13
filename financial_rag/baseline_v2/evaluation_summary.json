@@ -1,0 +1,42 @@
+{
+  "evaluated_at": "2026-10-13T10:32:54+08:00",
+  "mode": "live_engine",
+  "question_count": 14,
+  "chunk_count": 6696,
+  "response_pipeline_version": "v2",
+  "current_pipeline_version": "v2",
+  "implementation_sha256": {
+    "run_benchmark.py": "d9d4830129e8350b1dadbb1051c694b393d7ba7d1d2b745981d78bb6d686ccf0",
+    "search_engine.py": "b16da25615831034e1018b4faf9ffba24932e46a4cffd6ad925bf4782aeb8986",
+    "model_client.py": "23604987f821bca2aad89bc3cce9e883d5af7b6c816dffeb9d40d0d064d08d55",
+    "embeddings.py": "519fc4322b32f78fd00bab7619f3a1392c64d70bdf82cc0efa80b747880360f9"
+  },
+  "pdf_count": 10,
+  "total_pdf_pages": 1857,
+  "fulltext_manifest_verified": true,
+  "gold_sha256": "02878c7131be786457c59039d2e029b81af0b6df1d3ebaaf720b36152a4cc6b7",
+  "chunks_sha256": "f7806b66e7be416bf2a893f45d9622e359d13582f9d8c143472e16ffdc95583a",
+  "recall": {
+    "matched": 26,
+    "total": 43,
+    "micro_rate": 0.6046511627906976
+  },
+  "answer_numeric_facts": {
+    "metric_name": "严格结构化契约",
+    "verified": 0,
+    "total": 39,
+    "rate": 0.0
+  },
+  "answer_status_counts": {
+    "failed": 11,
+    "pending_gold_review": 1,
+    "needs_manual_review": 1,
+    "refusal_needs_review": 1
+  },
+  "fully_manually_reviewed_questions": 0,
+  "limitations": [
+    "严格结构化契约要求数值、指标名、期间、口径文字、出处同时通过，不能当成财务数字或整题正确率；自然语义与原文舍入另由独立PDF审阅评价。",
+    "金标页未列出的其他有效出处可能造成严格评分漏判，应补证据后重评而非改为关键词命中。",
+    "Q03题干分类不在原文，保留待核口径状态；不计入已核验数值事实分母。"
+  ]
+}

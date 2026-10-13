@@ -1,0 +1,115 @@
+{
+  "review_kind": "interim_diagnostic_only",
+  "reviewer": "Codex",
+  "complete_semantic_review": false,
+  "responses_sha256": "6be2ce2790872fb3d2adf4948a0e8f18c3bac3cb6a3aa92e23568212178ab764",
+  "reason": "Chapter metadata correction requires final full-corpus rerun; this interim run is archived, not final graded output.",
+  "records": [
+    {
+      "id": "Q01",
+      "status": "answered",
+      "validation_issues": [],
+      "model_run_id": "20261013T022644_417830Z",
+      "review_status": "pending_final_corpus_review"
+    },
+    {
+      "id": "Q02",
+      "status": "answered",
+      "validation_issues": [],
+      "model_run_id": "20261013T022702_369836Z",
+      "review_status": "pending_final_corpus_review"
+    },
+    {
+      "id": "Q03",
+      "status": "insufficient_evidence",
+      "validation_issues": [],
+      "model_run_id": "20261013T022728_642611Z",
+      "review_status": "pending_final_corpus_review"
+    },
+    {
+      "id": "Q04",
+      "status": "answered",
+      "validation_issues": [],
+      "model_run_id": "20261013T022744_017702Z",
+      "review_status": "pending_final_corpus_review"
+    },
+    {
+      "id": "Q05",
+      "status": "insufficient_evidence",
+      "validation_issues": [],
+      "model_run_id": "20261013T022807_907303Z",
+      "review_status": "pending_final_corpus_review"
+    },
+    {
+      "id": "Q06",
+      "status": "partial",
+      "validation_issues": [],
+      "model_run_id": "20261013T022822_915381Z",
+      "review_status": "pending_final_corpus_review"
+    },
+    {
+      "id": "Q07",
+      "status": "answered",
+      "validation_issues": [],
+      "model_run_id": "20261013T022855_457997Z",
+      "review_status": "pending_final_corpus_review"
+    },
+    {
+      "id": "Q08",
+      "status": "answered",
+      "validation_issues": [],
+      "model_run_id": "20261013T022923_994435Z",
+      "review_status": "pending_final_corpus_review"
+    },
+    {
+      "id": "Q09",
+      "status": "insufficient_evidence",
+      "validation_issues": [
+        "贵州茅台/酒类业务毛利率：原文未证明该数值为百分比，不能将小数或普通数字改成%。",
+        "正文数值 92.11% 无对应的已核对事实；仅允许精确等值单位换算，不接受自行计算或舍入。"
+      ],
+      "model_run_id": "20261013T022947_598277Z",
+      "review_status": "pending_final_corpus_review"
+    },
+    {
+      "id": "Q10",
+      "status": "partial",
+      "validation_issues": [],
+      "model_run_id": "20261013T023021_088405Z",
+      "review_status": "pending_final_corpus_review"
+    },
+    {
+      "id": "Q11",
+      "status": "partial",
+      "validation_issues": [],
+      "model_run_id": "20261013T023131_555263Z",
+      "review_status": "pending_final_corpus_review"
+    },
+    {
+      "id": "Q12",
+      "status": "insufficient_evidence",
+      "validation_issues": [
+        "贵州茅台/营业收入合计：原文明确单位 ['元'] 与 claim.unit=元(人民币) 冲突。",
+        "贵州茅台/营业收入合计：原文明确单位 ['元'] 与 claim.unit=元(人民币) 冲突。",
+        "正文数值 147693604994.14元 无对应的已核对事实；仅允许精确等值单位换算，不接受自行计算或舍入。",
+        "正文数值 81415570788.59元 无对应的已核对事实；仅允许精确等值单位换算，不接受自行计算或舍入。"
+      ],
+      "model_run_id": "20261013T023152_291119Z",
+      "review_status": "pending_final_corpus_review"
+    },
+    {
+      "id": "Q13",
+      "status": "insufficient_evidence",
+      "validation_issues": [],
+      "model_run_id": "20261013T023216_306040Z",
+      "review_status": "pending_final_corpus_review"
+    },
+    {
+      "id": "Q14",
+      "status": "answered",
+      "validation_issues": [],
+      "model_run_id": "20261013T023232_237186Z",
+      "review_status": "pending_final_corpus_review"
+    }
+  ]
+}

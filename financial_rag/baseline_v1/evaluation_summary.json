@@ -1,0 +1,33 @@
+{
+  "evaluated_at": "2026-10-13T10:16:51+08:00",
+  "mode": "regrade_saved_responses",
+  "question_count": 14,
+  "chunk_count": 6696,
+  "pdf_count": 10,
+  "total_pdf_pages": 1857,
+  "fulltext_manifest_verified": true,
+  "gold_sha256": "02878c7131be786457c59039d2e029b81af0b6df1d3ebaaf720b36152a4cc6b7",
+  "chunks_sha256": "f7806b66e7be416bf2a893f45d9622e359d13582f9d8c143472e16ffdc95583a",
+  "recall": {
+    "matched": 26,
+    "total": 43,
+    "micro_rate": 0.6046511627906976
+  },
+  "answer_numeric_facts": {
+    "verified": 0,
+    "total": 39,
+    "rate": 0.0
+  },
+  "answer_status_counts": {
+    "failed": 11,
+    "pending_gold_review": 1,
+    "needs_manual_review": 1,
+    "refusal_needs_review": 1
+  },
+  "fully_manually_reviewed_questions": 0,
+  "limitations": [
+    "数值通过率不是整题正确率；定性解释、自由叙述、梯队边界及拒答说明仍需人工逐条审阅。",
+    "金标页未列出的其他有效出处可能造成严格评分漏判，应补证据后重评而非改为关键词命中。",
+    "Q03题干分类不在原文，保留待核口径状态；不计入已核验数值事实分母。"
+  ]
+}

@@ -1,231 +1,340 @@
-"""
-财报解析与结构化切块模块 (Parse & Chunk)
+"""逐页解析完整年报，保留表格、物理 PDF 页码和可核验的覆盖记录。"""
 
-该模块读取 10 家白酒上市公司的 2023 年报 PDF，完成：
-1. 提取文字段落，保留段落语义完整性；
-2. 提取表格并还原为标准的 Markdown 行列格式（确保表头、数值与说明对齐）；
-3. 追踪章节层级（如“第二节 主要财务指标”、“第三节 管理层讨论与分析”）；
-4. 为每一个切块打上元数据标签：[公司, 代码, 章节, 页码, 类型]，并持久化保存为 chunks.json。
-"""
-
+import argparse
+import hashlib
 import json
-import os
 import re
 import sys
+import time
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
-import pdfplumber
+from typing import Any
 
-# 针对 Windows 控制台编码加固
-if sys.platform == "win32":
-    try:
-        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
-    except Exception:
-        pass
+import pdfplumber
+from pypdf import PdfReader
+from tqdm import tqdm
+
+if __package__:
+    from .download_reports import REPORTS_METADATA
+else:
+    from download_reports import REPORTS_METADATA
 
 # ==========================================
-# 可编辑参数配置区
+# 可编辑参数配置区：IDE 直接运行本文件即可重建全部年报。
 # ==========================================
 CURRENT_DIR = Path(__file__).resolve().parent
-PDF_DIR: str = str(CURRENT_DIR / "pdf_reports")
-OUTPUT_CHUNKS_PATH: str = str(CURRENT_DIR / "chunks.json")
-MAX_PAGES_PER_REPORT: int = 75  # 重点解析前75页（已完全覆盖主要财务指标、管理层讨论、主营构成与产销研发）
-TEXT_CHUNK_SIZE: int = 500      # 文本切块目标字数
-TEXT_CHUNK_OVERLAP: int = 80    # 重叠滑动窗口
+PDF_DIR = CURRENT_DIR / "pdf_reports"
+OUTPUT_CHUNKS_PATH = CURRENT_DIR / "chunks.json"
+MAX_PAGES_PER_REPORT: int | None = None  # None 解析全文；整数仅用于显式调试。
+TEXT_CHUNK_SIZE = 900
+TEXT_CHUNK_OVERLAP = 120
+TABLE_ROWS_PER_CHUNK = 16
+SHOW_PROGRESS = True
+PARSER_VERSION = "fulltext-v3-chapters"
+TABLE_SETTINGS = {"snap_tolerance": 6, "join_tolerance": 6}
 
-CHAPTER_PATTERN = re.compile(r"第[一二三四五六七八九十百]+节\s+([^\n\r]+)")
+CHAPTER_PATTERN = re.compile(r"^第[一二三四五六七八九十百]+节\s*[^\n\r]{1,65}$", re.MULTILINE)
 
 
-def format_table_as_markdown(table: List[List[Optional[str]]]) -> str:
-    """
-    将 pdfplumber 提取的二维列表表格还原为干净的 Markdown 格式文本。
-
-    清洗换行符、空值及跨行噪声，保持行列对齐与数值完整。
+def format_table_as_markdown(table: list[list[str | None]]) -> str:
+    """将原始表格转为保留空单元格及列位置的 Markdown 表格。
 
     Args:
-        table: 二维字符串列表。
+        table: pdfplumber 提取的二维单元格列表，shape 为 (行数, 列数)。
 
     Returns:
-        还原后的 Markdown 表格字符串。
+        str，包含表头、分隔行和全部非空数据行；空表返回空字符串。
     """
-    if not table or len(table) < 2:
+    rows = [[re.sub(r"\s+", " ", str(cell or "")).strip().replace("|", "\\|")
+             for cell in row] for row in table]
+    rows = [row for row in rows if any(row)]
+    if not rows:
         return ""
+    width = max(map(len, rows))
+    lines = ["| " + " | ".join(row + [""] * (width - len(row))) + " |" for row in rows]
+    return "\n".join([lines[0], "| " + " | ".join(["---"] * width) + " |", *lines[1:]])
 
-    cleaned_rows = []
-    max_cols = 0
-    for row in table:
-        cleaned_row = []
-        for cell in row:
-            if cell is None:
-                val = ""
-            else:
-                val = str(cell).replace("\r", " ").replace("\n", " ").strip()
-                val = val.replace("|", "/")
-            cleaned_row.append(val)
-        if any(cleaned_row):
-            max_cols = max(max_cols, len(cleaned_row))
-            cleaned_rows.append(cleaned_row)
 
-    if len(cleaned_rows) < 2 or max_cols == 0:
-        return ""
+def detect_page_chapter(page_text: str, previous_chapter: str) -> tuple[str, str]:
+    """识别本页真实章节，并返回本页标签及应延续到下一页的章节。
 
-    # 统一补齐列数
-    normalized_rows = []
-    for row in cleaned_rows:
-        row.extend([""] * (max_cols - len(row)))
-        normalized_rows.append(row)
+    目录条目按引导点或末尾页码过滤，不能用标题数量排除真实同页多节。
+    同页出现多节时本页保留所有标题，后续页从本页最后一节延续。
 
-    header = "| " + " | ".join(normalized_rows[0]) + " |"
-    separator = "| " + " | ".join(["---"] * max_cols) + " |"
-    body_lines = ["| " + " | ".join(row) + " |" for row in normalized_rows[1:]]
+    Args:
+        page_text: 按行提取的完整页面正文，不包含人为添加的引用前缀。
+        previous_chapter: 上一页结束时的章节，用于本页没有新标题的情况。
 
-    return "\n".join([header, separator] + body_lines)
+    Returns:
+        tuple[str, str]，依次为本页展示章节、后续页延续章节；不推断块内精确分界。
+    """
+    titles = []
+    for match in CHAPTER_PATTERN.finditer(page_text):
+        title = " ".join(match.group().split())
+        if re.search(r"[.．…·]{2}|\s\d+\s*$", title):
+            continue
+        if title not in titles:
+            titles.append(title)
+    return (" / ".join(titles), titles[-1]) if titles else (previous_chapter, previous_chapter)
 
 
 def parse_single_pdf(
-    pdf_path: str,
-    max_pages: int = MAX_PAGES_PER_REPORT,
-    show_progress: bool = True
-) -> List[Dict[str, Any]]:
-    """
-    解析单份财报 PDF，提取表格与文本，并附加完整的章节、页码元数据。
+    pdf_path: str | Path,
+    max_pages: int | None = MAX_PAGES_PER_REPORT,
+    show_progress: bool = SHOW_PROGRESS,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """处理一份年报的每一页，返回证据切块和实际解析覆盖记录。
+
+    1. 正文保留短科目行；按目录条目的格式过滤，真实同页多节保留组合章节。
+    2. 长表按行切分，重复前两行以保留多层表头，并保存表格上方标题及单位。
+    3. 页错误和无可提取文字的页面单独记录，不把遍历到末页视为完整提取。
 
     Args:
-        pdf_path: PDF 文件本地路径。
-        max_pages: 最大解析页数。
-        show_progress: 是否打印解析状态。
+        pdf_path: 待解析的本地 PDF 路径，文件名前缀应为股票代码。
+        max_pages: None 表示全文；正整数仅调试，status 必为 partial。
+        show_progress: 是否显示阶段提示和逐页 tqdm 进度条，默认开启。
 
     Returns:
-        切块列表，每个元素包含 chunk_id, company, code, chapter, page, type, content。
+        tuple，第一项为切块列表，第二项为页数、错误及来源 manifest 字典。
+        chunk 的 page 为从 1 开始的物理 PDF 页码，不是纸面印刷页码。
+
+    Raises:
+        ValueError: max_pages 不是正整数或文件名无法匹配已登记的财报来源。
     """
-    file_name = Path(pdf_path).stem
-    # 从文件名提取代码与公司名称，格式：600519_贵州茅台_2023年报
-    parts = file_name.split("_")
-    code = parts[0] if len(parts) > 0 else "000000"
-    company = parts[1] if len(parts) > 1 else "未知公司"
-    year = "2023"
-
+    if max_pages is not None and max_pages < 1:
+        raise ValueError("max_pages 必须为正整数或 None")
+    path = Path(pdf_path)
+    code = path.stem.split("_")[0]
+    meta = next((item for item in REPORTS_METADATA if item["code"] == code), None)
+    if meta is None:
+        raise ValueError(f"未登记的财报来源: {path.name}")
+    started = time.perf_counter()
     if show_progress:
-        print(f"[解析切块] 正在解析: {company} ({code}) ...")
+        print(f"[解析] 读取 {meta['name']} PDF，核对总页数后逐页提取...", flush=True)
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    source_url = "https://static.cninfo.com.cn/" + meta["adjunct_url"]
+    manifest: dict[str, Any] = {
+        "company": meta["name"], "code": code, "year": meta["year"],
+        "pdf_filename": path.name, "source_url": source_url, "pdf_sha256": digest,
+        "total_pages": 0, "processed_pages": 0, "pages_with_text": 0,
+        "pages_with_tables": 0, "no_text_pages": [], "page_errors": [],
+        "chunks": 0, "status": "failed", "page_numbering": "physical_pdf_1_based",
+    }
+    chunks: list[dict[str, Any]] = []
+    chapter = "前言/重要提示"
+    try:
+        manifest["total_pages"] = len(PdfReader(path).pages)
+        with pdfplumber.open(path) as pdf:
+            if len(pdf.pages) != manifest["total_pages"]:
+                raise ValueError("pypdf 与 pdfplumber 读取的总页数不一致")
+            limit = len(pdf.pages) if max_pages is None else min(max_pages, len(pdf.pages))
+            for page_index in tqdm(range(limit), desc=meta["name"], unit="页", disable=not show_progress):
+                page = pdf.pages[page_index]
+                page_num = page_index + 1
+                try:
+                    # 1. 保留每页全文，单独记录空文本，避免悄悄遗漏扫描页。
+                    page_text = page.extract_text() or ""
+                    clean_text = "\n".join(line.strip() for line in page_text.splitlines() if line.strip())
+                    if clean_text:
+                        manifest["pages_with_text"] += 1
+                    else:
+                        manifest["no_text_pages"].append(page_num)
+                    page_chapter, chapter = detect_page_chapter(clean_text, chapter)
+                    common = {
+                        "company": meta["name"], "code": code, "year": meta["year"],
+                        "chapter": page_chapter, "page": page_num, "source_url": source_url,
+                        "pdf_filename": path.name,
+                    }
+                    citation = f"【{meta['name']} {meta['year']}年报 | {page_chapter} | PDF第{page_num}页】"
 
-    chunks: List[Dict[str, Any]] = []
-    current_chapter = "前言/重要提示"
-
-    with pdfplumber.open(pdf_path) as pdf:
-        total_p = min(len(pdf.pages), max_pages)
-
-        for p_idx in range(total_p):
-            page_num = p_idx + 1
-            page = pdf.pages[p_idx]
-
-            # 1. 抽取页面文本
-            page_text = page.extract_text() or ""
-
-            # 检查是否有新的章节标题
-            chap_match = CHAPTER_PATTERN.search(page_text)
-            if chap_match:
-                current_chapter = chap_match.group(0).strip().replace("\n", " ")
-
-            # 2. 抽取并还原表格
-            tables = page.extract_tables() or []
-            table_idx = 0
-            for raw_tbl in tables:
-                md_tbl = format_table_as_markdown(raw_tbl)
-                if md_tbl and len(md_tbl) > 30:
-                    table_idx += 1
-                    chunks.append({
-                        "chunk_id": f"{code}_p{page_num}_tbl{table_idx}",
-                        "company": company,
-                        "code": code,
-                        "year": year,
-                        "chapter": current_chapter,
-                        "page": page_num,
-                        "type": "table",
-                        "content": f"【{company} 2023年报 表格 | 出处: {current_chapter} 第{page_num}页】\n{md_tbl}",
-                    })
-
-            # 3. 抽取正文并做定长重叠切块
-            # 清除表格重复文本与连续空白
-            clean_text = page_text.replace("\r", " ").strip()
-            # 过滤过短的无意义行
-            paragraphs = [p.strip() for p in clean_text.split("\n") if len(p.strip()) > 8]
-            combined_text = "\n".join(paragraphs)
-
-            if len(combined_text) > 40:
-                # 按滑动窗口切块
-                start = 0
-                sub_idx = 0
-                while start < len(combined_text):
-                    end = min(start + TEXT_CHUNK_SIZE, len(combined_text))
-                    chunk_text = combined_text[start:end].strip()
-                    if len(chunk_text) > 30:
-                        sub_idx += 1
+                    # 2. 正文不删除短行；滑窗保留相邻指标名及数值的上下文。
+                    for part, start in enumerate(range(0, len(clean_text), TEXT_CHUNK_SIZE - TEXT_CHUNK_OVERLAP), 1):
                         chunks.append({
-                            "chunk_id": f"{code}_p{page_num}_txt{sub_idx}",
-                            "company": company,
-                            "code": code,
-                            "year": year,
-                            "chapter": current_chapter,
-                            "page": page_num,
-                            "type": "text",
-                            "content": f"【{company} 2023年报 正文 | 出处: {current_chapter} 第{page_num}页】\n{chunk_text}",
+                            **common, "chunk_id": f"{code}_p{page_num}_txt{part}", "type": "text",
+                            "content": citation + "\n" + clean_text[start:start + TEXT_CHUNK_SIZE],
                         })
-                    start += TEXT_CHUNK_SIZE - TEXT_CHUNK_OVERLAP
 
+                    # 3. 原文保留表头及单位；不猜测合并单元格或跨页表的口径。
+                    # 填色单元格边缘有约 3–5 点偏移，合并近邻线避免生造空列。
+                    tables = page.find_tables(TABLE_SETTINGS)
+                    if tables:
+                        manifest["pages_with_tables"] += 1
+                    for table_index, table in enumerate(tables, 1):
+                        rows = table.extract()
+                        if not rows:
+                            continue
+                        top = max(0, table.bbox[1] - 150)
+                        context = page.crop((0, top, page.width, max(top + 0.1, table.bbox[1]))).extract_text() or ""
+                        context = "\n".join(context.splitlines()[-6:])
+                        headers, body = rows[:2], rows[2:]
+                        for part, start in enumerate(range(0, max(1, len(body)), TABLE_ROWS_PER_CHUNK), 1):
+                            markdown = format_table_as_markdown(headers + body[start:start + TABLE_ROWS_PER_CHUNK])
+                            if markdown:
+                                chunks.append({
+                                    **common, "chunk_id": f"{code}_p{page_num}_tbl{table_index}_{part}",
+                                    "type": "table", "content": citation + "\n" + context + "\n" + markdown,
+                                })
+                    manifest["processed_pages"] += 1
+                except Exception as exc:
+                    manifest["page_errors"].append({"page": page_num, "error": f"{type(exc).__name__}: {exc}"})
+                finally:
+                    page.close()
+            if manifest["page_errors"]:
+                manifest["status"] = "failed"
+            elif max_pages is not None:
+                manifest["status"] = "partial"
+            elif manifest["no_text_pages"]:
+                manifest["status"] = "needs_ocr"
+            else:
+                manifest["status"] = "complete"
+    except Exception as exc:
+        manifest["page_errors"].append({"page": None, "error": f"{type(exc).__name__}: {exc}"})
+    manifest["chunks"] = len(chunks)
+    manifest["elapsed_seconds"] = round(time.perf_counter() - started, 2)
     if show_progress:
-        print(f"[解析切块] [OK] {company} 解析完成: 提取 {len(chunks)} 个切块 (前 {total_p} 页)。")
-    return chunks
+        print(f"[解析] {meta['name']}: {manifest['status']}, {manifest['processed_pages']}/{manifest['total_pages']} 页, {len(chunks)} 切块", flush=True)
+    return chunks, manifest
 
 
 def batch_parse_all_reports(
-    pdf_dir: str = PDF_DIR,
-    output_path: str = OUTPUT_CHUNKS_PATH,
-    max_pages: int = MAX_PAGES_PER_REPORT,
-    show_progress: bool = True
-) -> List[Dict[str, Any]]:
-    """
-    遍历指定目录下所有财报 PDF，统一解析切块并导出为 JSON。
+    pdf_dir: str | Path = PDF_DIR,
+    output_path: str | Path = OUTPUT_CHUNKS_PATH,
+    max_pages: int | None = MAX_PAGES_PER_REPORT,
+    show_progress: bool = SHOW_PROGRESS,
+    force: bool = False,
+) -> list[dict[str, Any]]:
+    """遍历全部年报并输出切块及覆盖清单，复用来源和配置均一致的公司缓存。
 
     Args:
-        pdf_dir: PDF 存放目录。
-        output_path: 目标 chunks.json 保存路径。
-        max_pages: 每份财报最大解析页数。
-        show_progress: 是否输出进度。
+        pdf_dir: PDF 所在目录，必须包含 REPORTS_METADATA 登记的全部报告。
+        output_path: 切块 JSON 路径；parse_manifest.json 写在相同目录。
+        max_pages: None 表示全文；正整数输出明确标为 partial 的调试语料。
+        show_progress: 是否显示公司、页面级进度和写入阶段提示。
+        force: 是否忽略缓存，重新解析全部 PDF。
 
     Returns:
-        包含所有切块的列表。
+        list[dict]，全部公司的切块；只有完整解析或显式调试成功时返回。
+
+    Raises:
+        RuntimeError: 缺少报告、PDF 解析失败，或存在需 OCR 的空文本页。
     """
-    pdf_files = sorted([
-        os.path.join(pdf_dir, f)
-        for f in os.listdir(pdf_dir)
-        if f.lower().endswith(".pdf")
-    ])
-
+    files = sorted(Path(pdf_dir).glob("*.pdf"))
+    expected = {item["code"] for item in REPORTS_METADATA}
+    actual = {path.stem.split("_")[0] for path in files}
+    if actual != expected or len(files) != len(expected):
+        raise RuntimeError(f"报告数量或代码不符: expected={sorted(expected)}, actual={sorted(actual)}")
+    output = Path(output_path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    cache_dir = output.parent / "outputs" / "parse_cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    config = {"version": PARSER_VERSION, "max_pages": max_pages, "text_size": TEXT_CHUNK_SIZE,
+              "text_overlap": TEXT_CHUNK_OVERLAP, "table_rows": TABLE_ROWS_PER_CHUNK,
+              "table_settings": TABLE_SETTINGS}
     if show_progress:
-        print(f"[解析切块] 开始批量切块解析，发现 {len(pdf_files)} 份财报文件...")
-
-    all_chunks = []
-    for pdf_p in pdf_files:
-        chunks = parse_single_pdf(pdf_p, max_pages=max_pages, show_progress=show_progress)
+        print(f"[解析] 开始核验并解析 {len(files)} 份报告；页数限制={max_pages or '全文'}", flush=True)
+    started = time.perf_counter()
+    all_chunks, reports = [], []
+    for path in tqdm(files, desc="报告", unit="份", disable=not show_progress):
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        cache_path = cache_dir / (path.stem.split("_")[0] + ".json")
+        cache = json.loads(cache_path.read_text(encoding="utf-8")) if cache_path.exists() and not force else {}
+        if (cache.get("config") == config and cache.get("report", {}).get("pdf_sha256") == digest
+                and cache.get("report", {}).get("status") in {"complete", "partial"}):
+            chunks, report = cache["chunks"], cache["report"]
+            if show_progress:
+                print(f"[缓存] {report['company']}: 已核对 SHA256 和解析配置", flush=True)
+        else:
+            chunks, report = parse_single_pdf(path, max_pages=max_pages, show_progress=show_progress)
+            cache_path.write_text(json.dumps({"config": config, "report": report, "chunks": chunks}, ensure_ascii=False), encoding="utf-8")
         all_chunks.extend(chunks)
-
-    # 导出到 JSON 文件
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    with open(output_path, "w", encoding="utf-8") as f:
-        json.dump(all_chunks, f, ensure_ascii=False, indent=2)
-
+        reports.append(report)
+    status = "failed" if any(r["status"] in {"failed", "needs_ocr"} for r in reports) else (
+        "partial" if any(r["status"] == "partial" for r in reports) else "complete")
+    manifest = {
+        "generated_at": datetime.now(timezone.utc).isoformat(), "parser_config": config,
+        "status": status, "reports": reports, "total_chunks": len(all_chunks),
+        "total_pages": sum(r["total_pages"] for r in reports),
+        "processed_pages": sum(r["processed_pages"] for r in reports),
+        "elapsed_seconds": round(time.perf_counter() - started, 2),
+        "coverage_note": "complete 表示逐页无错误且有文本；不代表表格结构或财务口径已经人工核对。",
+    }
     if show_progress:
-        print(f"[解析切块] [DONE] 全部切块完成！累计生成 {len(all_chunks)} 个带元数据切块。")
-        print(f"         切块已保存至: {output_path}")
-
+        print(f"[写入] {len(all_chunks)} 切块及逐报告覆盖清单...", flush=True)
+    output.write_text(json.dumps(all_chunks, ensure_ascii=False, indent=2), encoding="utf-8")
+    (output.parent / "parse_manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+    if status == "failed":
+        raise RuntimeError("存在解析失败或空文本页，请检查 parse_manifest.json；不得作为完整语料验收")
+    if show_progress:
+        print(f"[完成] {status}: {manifest['processed_pages']}/{manifest['total_pages']} 页, {len(all_chunks)} 切块", flush=True)
     return all_chunks
 
 
+def verify_corpus(output_path: str | Path, pdf_dir: str | Path, show_progress: bool = True) -> dict[str, Any]:
+    """核对已生成语料的全文覆盖、切块数量、页码和当前 PDF 哈希。
+
+    Args:
+        output_path: 已生成 chunks.json 路径，其目录内必须有 parse_manifest.json。
+        pdf_dir: 原始 PDF 所在目录，用于页数与 SHA256 独立复核。
+        show_progress: 是否显示加载提示和报告核验进度。
+
+    Returns:
+        dict，核验通过后的 manifest，可用于验收展示。
+
+    Raises:
+        RuntimeError: 覆盖不全、来源改变或切块数量/页码不一致。
+    """
+    if show_progress:
+        print("[核验] 加载切块和覆盖清单，复核原始 PDF...", flush=True)
+    output = Path(output_path)
+    chunks = json.loads(output.read_text(encoding="utf-8"))
+    manifest = json.loads((output.parent / "parse_manifest.json").read_text(encoding="utf-8"))
+    if manifest["status"] != "complete" or len(chunks) != manifest["total_chunks"]:
+        raise RuntimeError("语料未完整解析或切块数量不符")
+    if {r["code"] for r in manifest["reports"]} != {r["code"] for r in REPORTS_METADATA}:
+        raise RuntimeError("语料未包含全部登记公司")
+    if len({chunk["chunk_id"] for chunk in chunks}) != len(chunks):
+        raise RuntimeError("chunk_id 不唯一")
+    for report in tqdm(manifest["reports"], desc="核验", unit="份", disable=not show_progress):
+        path = Path(pdf_dir) / report["pdf_filename"]
+        company_chunks = [chunk for chunk in chunks if chunk["code"] == report["code"]]
+        total = len(PdfReader(path).pages)
+        if (report["status"] != "complete" or report["page_errors"] or report["no_text_pages"]
+                or total != report["total_pages"] or total != report["processed_pages"]
+                or total != report["pages_with_text"] or len(company_chunks) != report["chunks"]
+                or hashlib.sha256(path.read_bytes()).hexdigest() != report["pdf_sha256"]
+                or {chunk["page"] for chunk in company_chunks} != set(range(1, total + 1))):
+            raise RuntimeError(f"核验失败: {report['company']}")
+    if show_progress:
+        print(f"[核验通过] {len(manifest['reports'])} 份, {manifest['total_pages']} 页, {len(chunks)} 切块", flush=True)
+    return manifest
+
+
 def main() -> None:
-    """直接执行该脚本完成解析切块。"""
-    batch_parse_all_reports()
+    """执行 IDE、脚本或模块入口的全文解析或现有语料核验。
+
+    Args:
+        无；参数来自顶部可编辑配置和命令行。
+
+    Returns:
+        None，解析或核验完成后退出；异常导致非零退出码。
+    """
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--pdf-dir", type=Path, default=PDF_DIR)
+    parser.add_argument("--output", type=Path, default=OUTPUT_CHUNKS_PATH)
+    parser.add_argument("--max-pages", type=int, default=MAX_PAGES_PER_REPORT, help="仅调试；截断语料标为 partial")
+    parser.add_argument("--no-progress", action="store_true")
+    parser.add_argument("--force", action="store_true", help="忽略公司缓存并重建")
+    parser.add_argument("--verify-only", action="store_true", help="复核现有全文语料，不重复解析")
+    args = parser.parse_args()
+    show_progress = SHOW_PROGRESS and not args.no_progress
+    if args.verify_only:
+        verify_corpus(args.output, args.pdf_dir, show_progress)
+    else:
+        batch_parse_all_reports(args.pdf_dir, args.output, args.max_pages, show_progress, args.force)
 
 
 if __name__ == "__main__":
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
     main()

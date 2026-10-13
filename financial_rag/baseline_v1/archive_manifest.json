@@ -1,0 +1,103 @@
+{
+  "archived_at": "2026-10-13T10:19:55+08:00",
+  "baseline": "first_real_run_v1",
+  "question_count": 14,
+  "corpus_sha256": [
+    "f7806b66e7be416bf2a893f45d9622e359d13582f9d8c143472e16ffdc95583a"
+  ],
+  "model_run_ids": [
+    "20261013T021037_890781Z",
+    "20261013T021101_161542Z",
+    "20261013T021125_776810Z",
+    "20261013T021148_477227Z",
+    "20261013T021205_724465Z",
+    "20261013T021220_205900Z",
+    "20261013T021302_142859Z",
+    "20261013T021325_663557Z",
+    "20261013T021345_757031Z",
+    "20261013T021421_710988Z",
+    "20261013T021524_008340Z",
+    "20261013T021545_078570Z",
+    "20261013T021608_422397Z",
+    "20261013T021623_400779Z"
+  ],
+  "model_request_sha256": [
+    "18c1bcf42783c92a30082ca45b235cbabc8dc94dc24675ab1432f3e2980acbbc",
+    "4625169871eba4907cf04736d3d53021a85780ed21d3b91d699d916ee3314867",
+    "d140bba7e67867bbd61d851f9037bbe61b771a3cfe7a781ecae43b1e6802f436",
+    "978800984ae3d4dd29bd8d07931626152b8a584829a740c105d93601bf4b4de7",
+    "0f5245939f244787bda942863f37129ac9fec3553694ecf84510ba02747f56b5",
+    "0dcc61fe162d796dbd29aa5e3bd868f3ae7ad26ae21f8c30d50161432f92e3f5",
+    "ad28e387ed8db0fba301a19fdd4640019faeb111f3cc7c55cb1e5555eb4069be",
+    "9632f0f3ab60ebbc988ba06afb1b1b62a510b54e681ba89e65f83ffba4c1fce8",
+    "206a7b552ccc0973a376cf1a70299cbaf831f5ea993047667a4792a65155fce0",
+    "8ec83f7352e8c3266872fe6454b7b11d19e553439d99b8c881cd0d4283242be2",
+    "e1f5d652602b749dacb8369dc399082bc26be6d50cff76e0ea08bc079e72321c",
+    "ce7393a00be3e9042634a23bc170210a15608f42fa0db5561af8d7b1f5aae89e",
+    "d065df639173e05232135b74979aedb6503b484a6f02f4312043193a976ee269",
+    "ae1b0d5d5fb1961c8c4417e222e26fa83e75384bb3817360d9a3c49997f2085a"
+  ],
+  "files": [
+    {
+      "name": "evaluation_records.json",
+      "sha256": "f5502083cac8e1150f8842e82ffb3ccc27fe1624d1c4e0030172bf938768b8bb",
+      "size_bytes": 213510
+    },
+    {
+      "name": "evaluation_records.md",
+      "sha256": "9ae7d893638ce37dc82e4669088076a6269a2b2909d603de15bed4c328e6f367",
+      "size_bytes": 28018
+    },
+    {
+      "name": "evaluation_responses.json",
+      "sha256": "0d8e1a242a2fae47b71f1059d56249716f95517ca8b775474a5fd69e0e456268",
+      "size_bytes": 379584
+    },
+    {
+      "name": "evaluation_summary.json",
+      "sha256": "ebd86d5175b646b2460b8270db9bfaa88529475c3e7b14e3d5a4fcf26f25ff6b",
+      "size_bytes": 1172
+    },
+    {
+      "name": "gold_cases.json",
+      "sha256": "02878c7131be786457c59039d2e029b81af0b6df1d3ebaaf720b36152a4cc6b7",
+      "size_bytes": 41177
+    },
+    {
+      "name": "manual_review.json",
+      "sha256": "888b3f4efc85f613f4546914a8e3204d4ee090f3c6494b68fd1917febd299661",
+      "size_bytes": 17223
+    },
+    {
+      "name": "parse_manifest.json",
+      "sha256": "a8f86cbf85138a628205e1bd5c719effd8a043d03a73c281bf74cb1539deffcb",
+      "size_bytes": 6999
+    },
+    {
+      "name": "README.md",
+      "sha256": "fb326946f327d4f04e7295623e11356c69cc41d809136a0c4ddd5fc285fb68e0",
+      "size_bytes": 1373
+    },
+    {
+      "name": "run_benchmark.py",
+      "sha256": "557e86070a2aed794bbd3bf7f9fce9c09a58077577e4d534fde8e037a1dc9794",
+      "size_bytes": 23486
+    },
+    {
+      "name": "test_benchmark.py",
+      "sha256": "28cae5f0c9d8cecf7f088405b4a2f965ff4dc8324d68f93dbff24011bb842eb0",
+      "size_bytes": 4302
+    },
+    {
+      "name": "web_new_question.json",
+      "sha256": "9b7f3f95f641142b2e6fbee687fb5f4142ca632163fd5fae750ab43862f48bfd",
+      "size_bytes": 9149
+    }
+  ],
+  "extra_web_example": {
+    "file": "web_new_question.json",
+    "sha256": "9b7f3f95f641142b2e6fbee687fb5f4142ca632163fd5fae750ab43862f48bfd",
+    "kind": "additional_browser_query_not_in_14_question_baseline",
+    "model_run_id": "20261013T021806_256120Z"
+  }
+}

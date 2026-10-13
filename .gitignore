@@ -2,9 +2,21 @@
 pdf_reports/
 financial_rag/pdf_reports/
 *.pdf
+!financial_rag/one_page_conclusion.pdf
 
 # Python cache
 __pycache__/
 *.pyc
 .pytest_cache/
 .ruff_cache/
+
+# Credentials and local runtime assets
+.env
+.env.*
+!.env.example
+.vscode/
+financial_rag/outputs/
+financial_rag/models/
+financial_rag/vector_index/
+.playwright-cli/
+output/playwright/

@@ -1,0 +1,35 @@
+{
+  "audit_date": "2026-10-13",
+  "issue": "旧解析器用标题数量等于1判断真实章节，误跳过同一页出现的两节标题。",
+  "fix": "逐条过滤目录引导点及尾部页码；真实同页多节使用组合标签，后续页延续最后一节。",
+  "old_parser_version": "fulltext-v2",
+  "new_parser_version": "fulltext-v3-chapters",
+  "old_corpus_sha256": "f7806b66e7be416bf2a893f45d9622e359d13582f9d8c143472e16ffdc95583a",
+  "new_corpus_sha256": "397b65a2d55e1157a0cb41bb3fc68decb61a5286b056b15bbed4240d6c9920b8",
+  "new_manifest_sha256": "5919e77fafac3e0418b3ab401f544b1cd94fe8027c1a31a8b221e58f20a3571f",
+  "total_reports": 10,
+  "total_pages": 1857,
+  "total_chunks": 6696,
+  "affected_companies": 6,
+  "affected_pages": 408,
+  "affected_chunks": 1347,
+  "page_numbering": "physical_pdf_1_based_inclusive_ranges",
+  "changes": [
+    {"code": "600519", "company": "贵州茅台", "page_ranges": [[4, 6], [55, 143]], "pages": 92, "chunks": 404},
+    {"code": "603198", "company": "迎驾贡酒", "page_ranges": [[4, 7], [71, 208]], "pages": 142, "chunks": 442},
+    {"code": "603589", "company": "口子窖", "page_ranges": [[4, 7], [73, 232]], "pages": 164, "chunks": 458},
+    {"code": "000858", "company": "五粮液", "page_ranges": [[49, 49]], "pages": 1, "chunks": 1},
+    {"code": "600809", "company": "山西汾酒", "page_ranges": [[4, 6], [50, 50]], "pages": 4, "chunks": 20},
+    {"code": "603369", "company": "今世缘", "page_ranges": [[4, 7], [53, 53]], "pages": 5, "chunks": 22}
+  ],
+  "changed_fields": ["chapter", "content首行引用前缀"],
+  "unchanged": "逐块比较确认chunk_id、公司、代码、年份、页码、类型、来源URL、PDF文件名及全部业务原文/表格正文完全一致。",
+  "verification": {
+    "pdf_audit": "用pypdf独立提取全部10份报告的章节页，另目视核对口子窖PDF第73页的第九节及第十节同页布局。",
+    "financial_chapters": "新语料10家公司从真实财务报告章起始页到报告末页均保留财务报告章节标签。",
+    "coverage": "1857页全部成功提取；无空文本页或页错误；PDF SHA256及逐页切块覆盖核验通过。",
+    "regression_file": "test_parse_and_chunk.py",
+    "regression_tests": 2,
+    "regression_result": "passed"
+  }
+}

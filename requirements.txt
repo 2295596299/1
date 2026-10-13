@@ -1,0 +1,7 @@
+# Local embeddings, hybrid retrieval, web service, and evaluation.
+# Verified with Python 3.11.15; the Codex CLI is installed separately.
+requests==2.33.1
+numpy==2.4.4
+onnxruntime==1.29.0
+tokenizers==0.23.1
+tqdm==4.67.3
